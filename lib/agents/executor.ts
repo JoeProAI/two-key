@@ -19,9 +19,21 @@ export function decide(ledger: MemoryLedger, proposal: Proposal, findings: Findi
   return d;
 }
 
-export function approve(ledger: MemoryLedger, decisionId: string, who: string, now: number): Decision {
+/** A decision waiting on a human expires after timeoutMs. Expired decisions never run; the planner must start over
+ *  with fresh balances and a fresh quote. Returns true if this call expired it. */
+export function expireIfStale(ledger: MemoryLedger, decisionId: string, now: number, timeoutMs: number): boolean {
+  const d = ledger.decisions.find((x) => x.id === decisionId);
+  if (!d || d.status !== "awaiting_human" || now - d.createdAt < timeoutMs) return false;
+  d.status = "expired";
+  d.expiredAt = now;
+  return true;
+}
+
+export function approve(ledger: MemoryLedger, decisionId: string, who: string, now: number, timeoutMs = Infinity): Decision {
   const d = ledger.decisions.find((x) => x.id === decisionId);
   if (!d) throw new Error("no such decision");
+  expireIfStale(ledger, decisionId, now, timeoutMs);
+  if (d.status === "expired") throw new Error("Approval window closed; this decision expired and must be re-planned.");
   if (!d.wringerAgrees) throw new Error("Wringer blocked this decision; a human tap cannot override it here.");
   d.humanApprovedBy = who;
   d.humanApprovedAt = now;
@@ -54,10 +66,21 @@ export async function execute(ledger: MemoryLedger, awx: AirwallexClient, decisi
         deferredPayouts.add(a.payoutId);
         response = { deferred: a.payoutId, until: a.until };
       } else if (a.kind === "fx_conversion") {
-        if (parseAwxTime(a.quoteValidToAt) - now < FX_MIN_HEADROOM_MS) throw new Error("quote went stale before execution");
-        const c = await awx.createConversion({ request_id: a.requestId, buy_currency: a.buyCurrency, sell_currency: a.sellCurrency, buy_amount: toMajorString(a.buyAmount, a.buyCurrency), quote_id: a.quoteId });
-        response = c;
-        airwallexId = c.conversion_id;
+        // Look the request_id up first (GET /api/v1/fx/conversions?request_id=), like transfers do.
+        // A ledger lost between runs must never turn into a second conversion.
+        const existing = await awx.findConversionByRequestId(a.requestId);
+        if (existing && existing.status !== "CANCELLED") {
+          result = "already_done";
+          response = existing;
+          airwallexId = existing.conversion_id;
+        } else if (existing) {
+          throw new Error(`conversion ${existing.conversion_id} for this request_id was CANCELLED; a human must decide`);
+        } else {
+          if (parseAwxTime(a.quoteValidToAt) - now < FX_MIN_HEADROOM_MS) throw new Error("quote went stale before execution");
+          const c = await awx.createConversion({ request_id: a.requestId, buy_currency: a.buyCurrency, sell_currency: a.sellCurrency, buy_amount: toMajorString(a.buyAmount, a.buyCurrency), quote_id: a.quoteId });
+          response = c;
+          airwallexId = c.conversion_id;
+        }
       } else {
         // Re-read the original right before paying (webhooks may be stale).
         const orig = await awx.getTransfer(a.originalTransferId);

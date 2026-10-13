@@ -45,3 +45,32 @@ export const demoWebhookDeliveries: WebhookEvent<Transfer>[] = [
 export const queuedPayout = { id: "queued_marketing_7000", amount: 7000, currency: "USD", label: "Agency retainer, due in 9 days", priority: "low" as const };
 
 export const RESERVE_USD = 10000;
+
+// Scenario (b): a $25k supplier payout, plenty of USD, so the only gate is the human tap.
+export const LARGE_TRANSFER_ID = "43217eec-6053-4fe6-b760-000000000025";
+export const largeTransfer: Transfer = {
+  ...originalTransfer,
+  id: LARGE_TRANSFER_ID,
+  request_id: "legacy-erp-req-25000",
+  transfer_amount: 25000,
+  reference: "INV-3307 Halvorsen Freight",
+  created_at: iso(T0 - 1_800_000),
+};
+export const largeBalances: Balance[] = [
+  { currency: "USD", available_amount: 80000, pending_amount: 0, reserved_amount: 0, total_amount: 80000 },
+  { currency: "EUR", available_amount: 10000, pending_amount: 0, reserved_amount: 0, total_amount: 10000 },
+];
+const ltx = (status: Transfer["status"]): Transfer => ({ ...largeTransfer, status });
+export const largeWebhookDeliveries: WebhookEvent<Transfer>[] = [
+  { id: "evt_l_failed", name: "payout.transfer.failed", account_id: "acct_demo", data: { object: ltx("FAILED") }, created_at: iso(T0 - 300_000), version: "2025-06-30" },
+  { id: "evt_l_cancel", name: "payout.transfer.cancelled", account_id: "acct_demo", data: { object: ltx("CANCELLED") }, created_at: iso(T0 - 295_000), version: "2025-06-30" },
+];
+
+/** Scenario (a): clean failure, USD short, so the plan needs an FX conversion. */
+export const cleanWebhookDeliveries: WebhookEvent<Transfer>[] = [
+  { id: "evt_s_failed", name: "payout.transfer.failed", account_id: "acct_demo", data: { object: tx("FAILED") }, created_at: iso(T0 - 600_000), version: "2025-06-30" },
+  { id: "evt_s_cancel", name: "payout.transfer.cancelled", account_id: "acct_demo", data: { object: tx("CANCELLED") }, created_at: iso(T0 - 590_000), version: "2025-06-30" },
+];
+
+/** How long a decision may wait for a human tap before it expires (scenario b). */
+export const APPROVAL_TIMEOUT_MS = 4 * 3_600_000;

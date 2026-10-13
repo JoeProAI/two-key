@@ -47,7 +47,8 @@ describe("demo scenario (mock, end to end)", () => {
     await runDemo(awx, { approver: "joe" });
     const second = await runDemo(awx, { approver: "joe" }); // fresh ledger, same intent
     const retry = second.executions.find((e) => e.actionKind === "retry_transfer");
-    expect(retry?.result === "already_done" || second.executions.some((e) => e.result === "error")).toBe(true);
+    expect(retry?.result).toBe("already_done");
+    expect(second.executions.some((e) => e.result === "error")).toBe(false);
     expect([...awx.transfers.values()].filter((t) => t.reference === fx.originalTransfer.reference && t.id !== fx.ORIGINAL_TRANSFER_ID)).toHaveLength(1);
   });
 });

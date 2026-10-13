@@ -3,6 +3,7 @@ import { signWebhook, verifyWebhook } from "@/lib/webhooks/verify";
 import { WebhookInbox } from "@/lib/webhooks/inbox";
 import { demoWebhookDeliveries, ORIGINAL_TRANSFER_ID } from "@/lib/airwallex/fixtures";
 import { POST } from "@/app/api/webhooks/airwallex/route";
+import { MemoryWebhookStore, setWebhookStore } from "@/lib/webhooks/store";
 
 const secret = "whsec_test";
 describe("HMAC verification", () => {
@@ -36,6 +37,7 @@ describe("dedupe and ordering", () => {
 describe("webhook route", () => {
   it("verifies, then flags duplicates", async () => {
     process.env.AIRWALLEX_WEBHOOK_SECRET = secret;
+    setWebhookStore(new MemoryWebhookStore());
     const body = JSON.stringify(demoWebhookDeliveries[2]);
     const ts = String(Date.now());
     const mk = (sig: string) => new Request("http://x/api/webhooks/airwallex", { method: "POST", body, headers: { "x-timestamp": ts, "x-signature": sig } });

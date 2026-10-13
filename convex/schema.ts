@@ -34,7 +34,8 @@ export default defineSchema({
     needsHuman: v.boolean(),
     humanApprovedBy: v.optional(v.string()),
     humanApprovedAt: v.optional(v.number()),
-    status: v.union(v.literal("blocked"), v.literal("awaiting_human"), v.literal("approved")),
+    expiredAt: v.optional(v.number()),
+    status: v.union(v.literal("blocked"), v.literal("awaiting_human"), v.literal("approved"), v.literal("expired")),
   }).index("by_proposal", ["proposalId"]),
   executions: defineTable({
     decisionId: v.id("decisions"),

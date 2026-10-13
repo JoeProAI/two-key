@@ -24,7 +24,7 @@ describe("Airwallex keys stay on the server", () => {
     }
   });
   it("no NEXT_PUBLIC_ secret names anywhere", () => {
-    for (const f of src) expect(readFileSync(f, "utf8")).not.toMatch(/NEXT_PUBLIC_(AIRWALLEX|OPENROUTER)/);
+    for (const f of src) expect(readFileSync(f, "utf8")).not.toMatch(/NEXT_PUBLIC_(AIRWALLEX|OPENROUTER|TWO_KEY)/);
   });
   it("errors and requests never echo the key", async () => {
     const seen: string[] = [];
@@ -38,7 +38,7 @@ describe("Airwallex keys stay on the server", () => {
       expect(JSON.stringify(h)).not.toContain("SECRET_KEY_123");
       return new Response(JSON.stringify({ code: "boom" }), { status: 500 });
     }) as typeof fetch;
-    const c = createLiveClient({ AIRWALLEX_CLIENT_ID: "cid", AIRWALLEX_API_KEY: "SECRET_KEY_123" } as NodeJS.ProcessEnv, fake);
+    const c = createLiveClient({ AIRWALLEX_CLIENT_ID: "cid", AIRWALLEX_API_KEY: "SECRET_KEY_123" } as unknown as NodeJS.ProcessEnv, fake);
     const err = await c.getBalances().catch((e: Error) => e);
     expect(String((err as Error).message)).not.toContain("SECRET_KEY_123");
     expect(seen.every((u) => !u.includes("SECRET_KEY_123"))).toBe(true);

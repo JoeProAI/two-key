@@ -4,6 +4,8 @@ import {
   type AirwallexClient,
   type Balance,
   type Conversion,
+  type ConversionList,
+  type TransferList,
   type CreateConversionBody,
   type CreateQuoteBody,
   type CreateTransferBody,
@@ -59,6 +61,7 @@ export function createLiveClient(env: NodeJS.ProcessEnv = process.env, fetchImpl
     if (!res.ok) {
       let code: string | undefined;
       try {
+        // Error body per docs/api/errors.md: { code, source, message, details }
         code = ((await res.json()) as { code?: string }).code;
       } catch {
         /* non-JSON error */
@@ -73,11 +76,12 @@ export function createLiveClient(env: NodeJS.ProcessEnv = process.env, fetchImpl
     mode: "live",
     // GET /api/v1/transfers/{id}
     getTransfer: (id) => call<Transfer>("GET", `/api/v1/transfers/${encodeURIComponent(id)}`),
-    // GET /api/v1/transfers?request_id=... (list endpoint accepts request_id filter).
-    // Doc: when unsure of a create outcome, "try to get a payout with this request_id".
+    // GET /api/v1/transfers?request_id=... (docs/api/payouts/transfers/list.md: `request_id` query param,
+    // response { items, page_after, page_before }). Doc: when unsure of a create outcome,
+    // "try to get a payout with this request_id".
     async findTransferByRequestId(requestId) {
-      const r = await call<{ items?: Transfer[] }>("GET", `/api/v1/transfers?request_id=${encodeURIComponent(requestId)}`);
-      return r.items?.[0] ?? null;
+      const r = await call<TransferList>("GET", `/api/v1/transfers?request_id=${encodeURIComponent(requestId)}`);
+      return r.items?.find((t) => t.request_id === requestId) ?? null;
     },
     // POST /api/v1/transfers/create. On any ambiguous failure we look the request_id up
     // instead of creating again, so a timeout can never turn into a second payment.
@@ -94,8 +98,26 @@ export function createLiveClient(env: NodeJS.ProcessEnv = process.env, fetchImpl
     getBalances: () => call<Balance[]>("GET", "/api/v1/balances/current"),
     // POST /api/v1/fx/quotes/create
     createQuote: (body: CreateQuoteBody) => call<Quote>("POST", "/api/v1/fx/quotes/create", body),
-    // POST /api/v1/fx/conversions/create (request_id required; quote_id pins client_rate)
-    createConversion: (body: CreateConversionBody) => call<Conversion>("POST", "/api/v1/fx/conversions/create", body),
+    // POST /api/v1/fx/conversions/create (request_id required; quote_id pins client_rate).
+    // Same safety net as transfers: on any failure, look the request_id up before giving up.
+    async createConversion(body: CreateConversionBody) {
+      try {
+        return await call<Conversion>("POST", "/api/v1/fx/conversions/create", body);
+      } catch (e) {
+        const existing = await this.findConversionByRequestId(body.request_id).catch(() => null);
+        if (existing) return existing;
+        throw e;
+      }
+    },
+    // GET /api/v1/fx/conversions/{conversion_id} (docs/api/transactional_fx/conversion/retrieve.md)
+    getConversion: (id: string) => call<Conversion>("GET", `/api/v1/fx/conversions/${encodeURIComponent(id)}`),
+    // GET /api/v1/fx/conversions?request_id=... (docs/api/transactional_fx/conversion/list.md: `request_id` query param,
+    // "Client-supplied conversion request_id"; response { has_more, items }). With no date filter the list covers
+    // the last 31 days, which is longer than any Two-Key intent lives.
+    async findConversionByRequestId(requestId) {
+      const r = await call<ConversionList>("GET", `/api/v1/fx/conversions?request_id=${encodeURIComponent(requestId)}`);
+      return r.items?.find((c) => c.request_id === requestId) ?? null;
+    },
     // Sandbox only: POST /api/v1/simulation/transfers/{id}/transition { next_status, failure_type? }
     simulateTransferTransition: (id: string, nextStatus: TransferStatus, failureType?: string) =>
       call<Transfer>("POST", `/api/v1/simulation/transfers/${encodeURIComponent(id)}/transition`, {

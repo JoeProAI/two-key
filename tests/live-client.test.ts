@@ -16,7 +16,7 @@ function fakeFetch(expiresAt: string) {
 }
 
 describe("live client", () => {
-  const env = { AIRWALLEX_CLIENT_ID: "c", AIRWALLEX_API_KEY: "k" } as NodeJS.ProcessEnv;
+  const env = { AIRWALLEX_CLIENT_ID: "c", AIRWALLEX_API_KEY: "k" } as unknown as NodeJS.ProcessEnv;
   it("reuses the token until near expires_at", async () => {
     const ff = fakeFetch("2099-01-01T00:00:00+0000");
     const c = createLiveClient(env, ff.f);
@@ -40,6 +40,6 @@ describe("live client", () => {
     expect(JSON.parse(create.body!).transfer_amount).toBe("40000.00");
   });
   it("refuses live mode without keys", () => {
-    expect(() => createLiveClient({} as NodeJS.ProcessEnv)).toThrow(/AIRWALLEX_CLIENT_ID/);
+    expect(() => createLiveClient({} as unknown as NodeJS.ProcessEnv)).toThrow(/AIRWALLEX_CLIENT_ID/);
   });
 });

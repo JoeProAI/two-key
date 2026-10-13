@@ -40,7 +40,11 @@ export function stubPlan(s: Situation, round_: number, objections: string[]): Pl
     });
   }
   return {
-    summary: `Retry once with a stable request_id, buy ${s.quote?.buy_amount ?? 0} USD with EUR at the quoted rate, defer ${deferred.length} low-priority payout(s).`,
+    summary: [
+      "Retry once with a stable request_id",
+      ...(actions.some((a) => a.kind === "fx_conversion") ? [`buy ${s.quote!.buy_amount} USD with EUR at the quoted rate`] : []),
+      ...(deferred.length ? [`defer ${deferred.length} low-priority payout(s)`] : []),
+    ].join(", ") + ".",
     actions,
   };
 }

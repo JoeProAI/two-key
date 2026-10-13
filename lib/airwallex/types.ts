@@ -78,6 +78,11 @@ export interface CreateConversionBody {
   sell_amount?: string;
   quote_id?: string;
 }
+/** Conversion statuses. Source: GET /api/v1/fx/conversions/{conversion_id} and GET /api/v1/fx/conversions
+ *  (https://www.airwallex.com/docs/api/transactional_fx/conversion/retrieve.md, .../conversion/list.md, checked Oct 13, 2026):
+ *  "Can be one of SCHEDULED, CANCELLED, OVERDUE, SETTLED". */
+export type ConversionStatus = "SCHEDULED" | "OVERDUE" | "CANCELLED" | "SETTLED";
+/** Subset of the conversion object. The id field is `conversion_id` (uuid), per the same docs. */
 export interface Conversion {
   conversion_id: string;
   request_id: string;
@@ -86,8 +91,15 @@ export interface Conversion {
   buy_amount: number;
   sell_amount: number;
   quote_id?: string;
-  status: string;
+  status: ConversionStatus;
+  created_at?: string;
 }
+
+/** List responses. GET /api/v1/transfers returns { items, page_after, page_before }
+ *  (docs/api/payouts/transfers/list.md). GET /api/v1/fx/conversions returns { has_more, items }
+ *  (docs/api/transactional_fx/conversion/list.md). Both wrap results in `items`. */
+export interface TransferList { items?: Transfer[]; page_after?: string | null; page_before?: string | null }
+export interface ConversionList { items?: Conversion[]; has_more?: boolean }
 
 /** Webhook Event object. Source: docs/developer-tools/webhooks/listen-for-webhook-events
  *  Fields: id, name, account_id, org_id, data.object, created_at, version. */
@@ -100,6 +112,20 @@ export interface WebhookEvent<T = unknown> {
   created_at: string;
   version?: string;
 }
+
+/** Documented error codes we branch on.
+ *  Error body: { code, source, message, details } (docs/api/errors.md).
+ *  POST /api/v1/transfers/create: 400 `request_id_duplicate`, 400 `quote_expired`, 409 `request_pending`
+ *  (docs/api/payouts/transfers/create.md, "Errors").
+ *  POST /api/v1/fx/conversions/create: 400 `expired_quote`, `invalid_quote_id`, `invalid_argument`, ... The docs say a reused
+ *  request_id "will be rejected" but list no dedicated code (docs/api/transactional_fx/conversion/create.md). */
+export const AWX_ERR = {
+  transferDuplicate: "request_id_duplicate",
+  transferPending: "request_pending",
+  transferQuoteExpired: "quote_expired",
+  conversionQuoteExpired: "expired_quote",
+  balanceInsufficient: "balance_insufficient",
+} as const;
 
 export class AirwallexError extends Error {
   constructor(
@@ -119,6 +145,10 @@ export interface AirwallexClient {
   getBalances(): Promise<Balance[]>;
   createQuote(body: CreateQuoteBody): Promise<Quote>;
   createConversion(body: CreateConversionBody): Promise<Conversion>;
+  /** GET /api/v1/fx/conversions/{conversion_id} */
+  getConversion(conversionId: string): Promise<Conversion>;
+  /** GET /api/v1/fx/conversions?request_id=... (list endpoint's documented request_id filter). */
+  findConversionByRequestId(requestId: string): Promise<Conversion | null>;
   /** Sandbox only: POST /api/v1/simulation/transfers/{id}/transition */
   simulateTransferTransition(id: string, nextStatus: TransferStatus, failureType?: string): Promise<Transfer>;
 }
