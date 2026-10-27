@@ -35,6 +35,19 @@ describe("demo scenario (mock, end to end)", () => {
     expect(awx.calls.createConversion).toBe(1);
   });
 
+  it("sends the documented transfer reason", async () => {
+    const awx = createMockClient();
+    let reason: string | undefined;
+    const orig = awx.createTransfer.bind(awx);
+    awx.createTransfer = async (body) => {
+      reason = body.reason;
+      return orig(body);
+    };
+    await runDemo(awx, { approver: "joe" });
+    // https://www.airwallex.com/docs/payouts/transfers/create-a-transfer
+    expect(reason).toBe("bill_payment");
+  });
+
   it("without a human tap nothing moves", async () => {
     const awx = createMockClient();
     const res = await runDemo(awx);

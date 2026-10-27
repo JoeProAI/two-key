@@ -132,6 +132,12 @@ export class AirwallexError extends Error {
     message: string,
     public status: number,
     public code?: string,
+    /** API `message` field. Kept off `Error.message` so a log of the exception stays free of echoed request data. */
+    public apiMessage?: string,
+    /** API `source` field (a parameter path, not a value). */
+    public source?: string,
+    /** Parameter paths pulled out of `details`. Values are not copied. */
+    public fields: string[] = [],
   ) {
     super(message);
   }

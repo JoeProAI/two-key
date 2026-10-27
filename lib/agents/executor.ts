@@ -93,7 +93,10 @@ export async function execute(ledger: MemoryLedger, awx: AirwallexClient, decisi
         } else {
           const t = await awx.createTransfer({
             request_id: a.requestId, beneficiary_id: a.beneficiaryId, transfer_amount: toMajorString(a.amount, a.currency),
-            transfer_currency: a.currency, source_currency: a.currency, transfer_method: "LOCAL", reference: a.reference, reason: "supplier_payment",
+            transfer_currency: a.currency, source_currency: a.currency, transfer_method: "LOCAL", reference: a.reference,
+            // https://www.airwallex.com/docs/payouts/transfers/create-a-transfer — accepted values do not include
+            // `supplier_payment`. `bill_payment` is the supplier-invoice purpose.
+            reason: "bill_payment",
           });
           response = t;
           airwallexId = t.id;
