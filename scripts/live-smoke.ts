@@ -1,6 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { AirwallexError, type Quote, type Transfer } from "../lib/airwallex/types";
 import { createLiveClient, type GlobalAccountSummary } from "../lib/airwallex/live";
+import { driveFailedThenCancelled } from "../lib/airwallex/transfer-drive";
 import { stableRequestId } from "../lib/requestId";
 import { toMajorString } from "../lib/money";
 
@@ -68,7 +69,7 @@ function describeError(e: unknown): string {
   if (e instanceof AirwallexError) {
     const fields = e.fields.length ? ` fields=${e.fields.join("|")}` : "";
     const source = e.source ? ` source=${e.source}` : "";
-    return redact(`${e.status} ${e.code ?? "no_code"} ${e.apiMessage ?? ""}${source}${fields}`.trim());
+    return redact(`${e.message} ${e.status} ${e.code ?? "no_code"} ${e.apiMessage ?? ""}${source}${fields}`.trim());
   }
   return redact(e instanceof Error ? e.message : String(e));
 }
@@ -122,6 +123,7 @@ function supplierBeneficiary(): Record<string, unknown> {
         account_number: "1234567890",
         account_routing_type1: "aba",
         account_routing_value1: "021000021",
+        bank_account_category: "Checking",
         local_clearing_system: "ACH",
       },
     },
@@ -207,14 +209,6 @@ async function main() {
   balances = await client.getBalances();
   say(`GET /api/v1/balances/current ok ${balances.map((b) => `${b.currency}=${b.available_amount}`).join(" ") || "(none)"}`);
 
-  const fresh = await client.createQuote({
-    buy_currency: quotePair.buy,
-    sell_currency: quotePair.sell,
-    buy_amount: BUY_USD,
-    validity: "MIN_15",
-  });
-  say(`POST /api/v1/fx/quotes/create ok quote_id=${fresh.quote_id} (fresh, for the conversion)`);
-
   const conversionRequestId = stableRequestId(INTENT, "fx_conversion");
   say(`conversion request_id=${conversionRequestId}`);
   try {
@@ -225,12 +219,19 @@ async function main() {
     } else if (existing) {
       say(`GET /api/v1/fx/conversions?request_id= ok conversion_id=${existing.conversion_id} status=CANCELLED; not creating another`);
     } else {
+      const freshForConversion = await client.createQuote({
+        buy_currency: quotePair.buy,
+        sell_currency: quotePair.sell,
+        buy_amount: BUY_USD,
+        validity: "MIN_15",
+      });
+      say(`POST /api/v1/fx/quotes/create ok quote_id=${freshForConversion.quote_id} (fresh, for the conversion)`);
       const created = await client.createConversion({
         request_id: conversionRequestId,
         buy_currency: quotePair.buy,
         sell_currency: quotePair.sell,
         buy_amount: toMajorString(BUY_USD, quotePair.buy),
-        quote_id: fresh.quote_id,
+        quote_id: freshForConversion.quote_id,
       });
       conversionOk = true;
       say(
@@ -264,12 +265,8 @@ async function main() {
       });
       say(`POST /api/v1/transfers/create ok id=${transfer.id} status=${transfer.status} amount=${amountNote(transfer.transfer_amount)} request_id=${transfer.request_id}`);
     }
-    if (transfer.status === "PAID" || transfer.status === "SENT") {
-      say(`transfer ${transfer.id} is ${transfer.status}; leaving it (will not create another)`);
-    } else {
-      await driveTransfer(client, transfer);
-      transferOk = true;
-    }
+    await driveTransfer(client, transfer);
+    transferOk = true;
   } catch (e) {
     say(`transfer path FAIL ${describeError(e)}`);
   }
@@ -382,43 +379,10 @@ async function ensureBeneficiary(client: ReturnType<typeof createLiveClient>): P
 }
 
 async function driveTransfer(client: ReturnType<typeof createLiveClient>, transfer: Transfer) {
-  let status: string = transfer.status;
-  if (status === "CANCELLED") {
-    say(`POST /api/v1/simulation/transfers/${transfer.id}/transition skipped status already CANCELLED`);
-    return;
-  }
-  if (status !== "FAILED") {
-    try {
-      const failed = await client.simulateTransferTransition(transfer.id, "FAILED", FAILURE_TYPE);
-      status = failed.status;
-      say(`POST /api/v1/simulation/transfers/${transfer.id}/transition FAILED -> ${status} failure_type=${FAILURE_TYPE}`);
-    } catch (e) {
-      say(`transition FAILED first try ${describeError(e)}`);
-      if (status !== "PROCESSING") {
-        const processing = await client.simulateTransferTransition(transfer.id, "PROCESSING");
-        status = processing.status;
-        say(`POST /api/v1/simulation/transfers/${transfer.id}/transition PROCESSING -> ${status}`);
-      }
-      const failed = await client.simulateTransferTransition(transfer.id, "FAILED", FAILURE_TYPE);
-      status = failed.status;
-      say(`POST /api/v1/simulation/transfers/${transfer.id}/transition FAILED -> ${status} failure_type=${FAILURE_TYPE}`);
-    }
-  } else {
-    say(`transfer ${transfer.id} already FAILED`);
-  }
-  const reread = await client.getTransfer(transfer.id);
-  say(`GET /api/v1/transfers/${transfer.id} ok status=${reread.status}`);
-  if (reread.status === "CANCELLED") {
-    say("FAILED transfer was already CANCELLED on read-back (platform auto-cancel)");
-    return;
-  }
-  const cancelled = await client.simulateTransferTransition(transfer.id, "CANCELLED");
-  say(`POST /api/v1/simulation/transfers/${transfer.id}/transition CANCELLED -> ${cancelled.status}`);
-  const final = await client.getTransfer(transfer.id);
-  say(`GET /api/v1/transfers/${transfer.id} ok status=${final.status}`);
-  if (final.status !== "CANCELLED" && final.status !== "FAILED") {
-    throw new Error(`transfer ended ${final.status}, wanted FAILED then CANCELLED`);
-  }
+  const drive = await driveFailedThenCancelled(client, transfer.id, FAILURE_TYPE);
+  say(
+    `POST /api/v1/simulation/transfers/${transfer.id}/transition final=${drive.finalStatus} auto_cancelled=${drive.autoCancelled} hops=${drive.hops.join(",")}`,
+  );
 }
 
 main().catch((e) => {
