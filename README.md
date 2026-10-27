@@ -4,7 +4,7 @@ A payment ops agent for the Airwallex Agentic Banking Hackathon. It fixes failed
 
 Each money move needs two keys. The **planner** drafts the fix: retry the transfer, convert funds with an FX quote, or defer a low-priority payout. The **Wringer** tries to break the plan. It looks for duplicate or out-of-order webhooks, CANCELLED vs FAILED, stale FX quotes, and reserve breaches. The **executor** runs a plan only when both agree, uses one stable `request_id` per intent and action, and waits for a human tap at or above `APPROVAL_THRESHOLD_USD`. Every step lands in the ledger and comes out as a receipt.
 
-Status: day-one skeleton, built Oct 11, 2026 before acceptance. Mock mode runs end to end with no keys. A live sandbox smoke on Oct 27, 2026 did not authenticate: `AIRWALLEX_CLIENT_ID` and `AIRWALLEX_API_KEY` were not in the agent environment, so no login or balances call was sent. See `docs/ops-note.md`.
+Status: day-one skeleton, built Oct 11, 2026 before acceptance. Mock mode runs end to end with no keys. A live sandbox smoke on Oct 27, 2026 did not authenticate. A recheck after the Cursor environment secrets were saved still found `AIRWALLEX_CLIENT_ID` and `AIRWALLEX_API_KEY` unset in this running agent, so no login or balances call was sent. See `docs/ops-note.md`.
 
 ## Run it
 
