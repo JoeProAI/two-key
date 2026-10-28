@@ -17,7 +17,7 @@ npm run demo -- stale-quote    # 1-minute quote goes stale, Wringer blocks, plan
 npm run demo -- approval       # $25k payout waits 90 min for the tap, then pays once
 npm run demo -- approval-timeout  # same payout, no tap within 4 hours: expires, nothing moves
 npm run check                  # lint + typecheck + tests + build-and-scan for leaked keys
-AIRWALLEX_MODE=live npm run live-smoke   # sandbox only: login, balances, FX quote, then a small conversion and a transfer driven FAILED then CANCELLED. Not part of check. See docs/ops-note.md.
+AIRWALLEX_MODE=live npm run live-smoke   # sandbox host only: login, balances, FX quote, conversion, and a transfer that ends CANCELLED. Refuses any other AIRWALLEX_BASE_URL. Not part of check. See docs/ops-note.md.
 npm run dev                    # bare placeholder page + webhook route
 ```
 

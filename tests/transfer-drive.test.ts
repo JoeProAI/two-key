@@ -65,6 +65,18 @@ describe("sandbox transfer drive", () => {
     expect(drive.finalStatus).toBe("CANCELLED");
   });
 
+  it("throws when the transfer stays FAILED after the CANCELLED call", async () => {
+    const awx = {
+      async getTransfer() {
+        return transfer("FAILED");
+      },
+      async simulateTransferTransition() {
+        return transfer("FAILED");
+      },
+    };
+    await expect(driveFailedThenCancelled(awx, "t1", "BENEFICIARY_NAME_MISMATCH", async () => {})).rejects.toThrow(/ended FAILED/);
+  });
+
   it("does not transition a transfer that is already CANCELLED", async () => {
     let calls = 0;
     const awx = {

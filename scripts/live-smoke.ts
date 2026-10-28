@@ -1,4 +1,6 @@
 import { writeFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { AirwallexError, type Quote, type Transfer } from "../lib/airwallex/types";
 import { createLiveClient, type GlobalAccountSummary } from "../lib/airwallex/live";
 import { driveFailedThenCancelled } from "../lib/airwallex/transfer-drive";
@@ -32,6 +34,47 @@ const BUY_USD = 10;
 const MIN_BALANCE = 40;
 const TOP_UP = 100;
 const FAILURE_TYPE = "BENEFICIARY_NAME_MISMATCH";
+const SANDBOX_ORIGIN = "https://api.sandbox.airwallex.com";
+
+/** Pass only when the quote, the conversion, and the transfer proof all landed. */
+export function smokePassed(flags: { quoteOk: boolean; conversionOk: boolean; transferOk: boolean }): boolean {
+  return flags.quoteOk && flags.conversionOk && flags.transferOk;
+}
+
+/** CANCELLED is the only transfer proof, including the auto-cancel that follows FAILED. */
+export function transferProofOk(finalStatus: string): boolean {
+  return finalStatus === "CANCELLED";
+}
+
+/** Exact nickname only. A list that does not contain the smoke beneficiary is not a match. */
+export function smokeBeneficiaryId(listed: { id?: string; nickname?: string }[], nickname: string): string | null {
+  const match = listed.find((row) => row.nickname === nickname && row.id);
+  return match?.id ?? null;
+}
+
+/** `sufficient` and `deposited` may continue. `blocked` and `short` must stop before any money move. */
+export function fundingReady(detail: string): boolean {
+  return detail === "sufficient" || detail === "deposited";
+}
+
+/**
+ * Live smoke may talk only to the Airwallex sandbox. Production (`api.airwallex.com`)
+ * and any other host are refused before a client is constructed.
+ */
+export function sandboxBaseUrl(raw: string | undefined): string {
+  const input = raw?.trim() || SANDBOX_ORIGIN;
+  let url: URL;
+  try {
+    url = new URL(input);
+  } catch {
+    throw new Error("live-smoke: AIRWALLEX_BASE_URL is not a URL. Sandbox only.");
+  }
+  const pathOk = url.pathname === "" || url.pathname === "/";
+  if (url.protocol !== "https:" || url.hostname !== "api.sandbox.airwallex.com" || url.username || url.password || url.search || url.hash || !pathOk) {
+    throw new Error(`live-smoke: refusing host ${url.hostname || "(none)"}. Sandbox only (${SANDBOX_ORIGIN}).`);
+  }
+  return url.origin;
+}
 
 const SECRET_NAMES = [
   "AIRWALLEX_CLIENT_ID",
@@ -145,7 +188,8 @@ async function main() {
     process.exit(2);
   }
 
-  const base = process.env.AIRWALLEX_BASE_URL || "https://api.sandbox.airwallex.com";
+  const base = sandboxBaseUrl(process.env.AIRWALLEX_BASE_URL);
+  process.env.AIRWALLEX_BASE_URL = base;
   say(`live-smoke intent=${INTENT}`);
   say(`base=${base}`);
   say(`secrets ${SECRET_NAMES.map(present).join(" ")}`);
@@ -204,6 +248,9 @@ async function main() {
     }
     const funded = await ensureCurrency(client, currency);
     say(`fund ${currency} ${funded}`);
+    if (!fundingReady(funded)) {
+      throw new Error(`funding ${currency} not ready (${funded}); stopping before conversion and transfer`);
+    }
   }
 
   balances = await client.getBalances();
@@ -265,13 +312,12 @@ async function main() {
       });
       say(`POST /api/v1/transfers/create ok id=${transfer.id} status=${transfer.status} amount=${amountNote(transfer.transfer_amount)} request_id=${transfer.request_id}`);
     }
-    await driveTransfer(client, transfer);
-    transferOk = true;
+    transferOk = await driveTransfer(client, transfer);
   } catch (e) {
     say(`transfer path FAIL ${describeError(e)}`);
   }
 
-  const pass = quoteOk && (conversionOk || transferOk);
+  const pass = smokePassed({ quoteOk, conversionOk, transferOk });
   say(`result ${pass ? "pass" : "fail"} quote=${quoteOk} conversion=${conversionOk} transfer=${transferOk}`);
   writeFileSync("/tmp/two-key-live-smoke.txt", lines.join("\n") + "\n");
   if (!pass) process.exitCode = 1;
@@ -354,10 +400,10 @@ async function ensureCurrency(
 
 async function ensureBeneficiary(client: ReturnType<typeof createLiveClient>): Promise<string> {
   const listed = await client.listBeneficiaries(BENEFICIARY_NICK);
-  const found = listed.find((b) => b.nickname === BENEFICIARY_NICK) ?? listed[0];
-  if (found?.id) {
-    say(`GET /api/v1/beneficiaries?nick_name= ok reused id=${found.id}`);
-    return found.id;
+  const existingId = smokeBeneficiaryId(listed, BENEFICIARY_NICK);
+  if (existingId) {
+    say(`GET /api/v1/beneficiaries?nick_name= ok reused id=${existingId} nickname=${BENEFICIARY_NICK}`);
+    return existingId;
   }
   try {
     const schema = await client.generateBeneficiarySchema({
@@ -378,19 +424,28 @@ async function ensureBeneficiary(client: ReturnType<typeof createLiveClient>): P
   return created.id;
 }
 
-async function driveTransfer(client: ReturnType<typeof createLiveClient>, transfer: Transfer) {
+async function driveTransfer(client: ReturnType<typeof createLiveClient>, transfer: Transfer): Promise<boolean> {
   const drive = await driveFailedThenCancelled(client, transfer.id, FAILURE_TYPE);
-  say(
-    `POST /api/v1/simulation/transfers/${transfer.id}/transition final=${drive.finalStatus} auto_cancelled=${drive.autoCancelled} hops=${drive.hops.join(",")}`,
-  );
+  const hop = drive.hops.join(",");
+  const call = hop === "already CANCELLED"
+    ? `GET /api/v1/transfers/${transfer.id}`
+    : `POST /api/v1/simulation/transfers/${transfer.id}/transition`;
+  say(`${call} final=${drive.finalStatus} auto_cancelled=${drive.autoCancelled} hops=${hop}`);
+  if (!transferProofOk(drive.finalStatus)) {
+    throw new Error(`transfer ${transfer.id} final=${drive.finalStatus}; smoke requires CANCELLED`);
+  }
+  return true;
 }
 
-main().catch((e) => {
-  say(`result fail ${describeError(e)}`);
-  try {
-    writeFileSync("/tmp/two-key-live-smoke.txt", lines.join("\n") + "\n");
-  } catch {
-    /* report is best-effort */
-  }
-  process.exit(1);
-});
+const entry = process.argv[1] ? path.resolve(process.argv[1]) : "";
+if (entry && entry === fileURLToPath(import.meta.url)) {
+  main().catch((e) => {
+    say(`result fail ${describeError(e)}`);
+    try {
+      writeFileSync("/tmp/two-key-live-smoke.txt", lines.join("\n") + "\n");
+    } catch {
+      /* report is best-effort */
+    }
+    process.exit(1);
+  });
+}
