@@ -2,14 +2,19 @@ import type { Action } from "../ledger/types";
 import { stableRequestId } from "../requestId";
 import { round } from "../money";
 import type { Situation } from "./situation";
-import { agentMode, chatJSON } from "./openrouter";
+import { agentMode, chatJSON, type ChatJSON } from "./openrouter";
 
 export interface Plan { summary: string; actions: Action[] }
 
+export interface PlanOptions {
+  env?: NodeJS.ProcessEnv;
+  chat?: ChatJSON;
+}
+
 export const PLANNER_SYSTEM = `You are the Two-Key planner for a payment ops team on Airwallex.
-Given a JSON situation, propose the smallest set of money moves that gets the failed supplier paid once.
-Allowed moves: retry_transfer, fx_conversion (needs a live quote), defer_payout (only low-priority queued payouts).
-Never invent ids. Reply JSON {"summary": string, "moves": [{"kind": ..., "amount"?: number, "payoutId"?: string}]}.`;
+Code has already filed the money moves for this round (retry_transfer, fx_conversion, defer_payout).
+You may comment. You cannot add, remove, or renumber moves, and you cannot set ids, amounts, or request_ids.
+Reply JSON {"summary": string, "moves": []}.`;
 
 /** Deterministic stub. Round 1 is the "obvious" plan a hurried operator makes; round 2 answers the Wringer. */
 export function stubPlan(s: Situation, round_: number, objections: string[]): Plan {
@@ -49,11 +54,18 @@ export function stubPlan(s: Situation, round_: number, objections: string[]): Pl
   };
 }
 
-/** LLM path: the model picks moves; code fills every id, amount source, and request_id. */
-export async function plan(s: Situation, round_: number, objections: string[]): Promise<Plan> {
-  if (agentMode() === "stub") return stubPlan(s, round_, objections);
-  const out = await chatJSON<{ summary: string; moves: { kind: string; payoutId?: string }[] }>("planner", PLANNER_SYSTEM, { situation: s, round: round_, objections });
-  const base = stubPlan(s, 2, ["llm"]);
-  const kinds = new Set(out.moves.map((m) => m.kind));
-  return { summary: out.summary, actions: base.actions.filter((a) => kinds.has(a.kind)) };
+/** Live path: the model is consulted when OpenRouter is configured. Code still files every move.
+ *  The model cannot add a retry, change an amount, or choose a request_id. Round 1 stays the
+ *  fixture plan so the Wringer still has a double-pay to block. A failed call leaves the fixture. */
+export async function plan(s: Situation, round_: number, objections: string[], opts: PlanOptions = {}): Promise<Plan> {
+  const stub = stubPlan(s, round_, objections);
+  const env = opts.env ?? process.env;
+  if (agentMode(env) !== "llm") return stub;
+  try {
+    const chat = opts.chat ?? ((role, system, user, callEnv) => chatJSON(role, system, user, callEnv));
+    await chat("planner", PLANNER_SYSTEM, { situation: s, round: round_, objections }, env);
+  } catch {
+    /* Fixture plan stands. The model never gets a second chance to edit it. */
+  }
+  return stub;
 }

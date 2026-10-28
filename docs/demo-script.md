@@ -6,7 +6,7 @@ Recording rules:
 - Sandbox only. Every id on screen comes from the Airwallex sandbox or the mock. No real customer data.
 - No keys on screen. Keep the terminal env and `.env.local` off camera.
 - Before recording, run `npm run demo`, `npm run demo -- rerun`, `npm run demo -- approval` and `npm run demo -- approval-timeout` once so the output matches what you say.
-- The receipt text in the terminal is the source of truth. If the UI pass lands, show the same lines there.
+- The receipt text in the terminal is the source of truth. The desk (`npm run dev`) prints the same lines after the tap.
 
 ## Beat sheet
 

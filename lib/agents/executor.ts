@@ -6,6 +6,7 @@ import { toMajorString } from "../money";
 import type { Finding } from "./wringer";
 import { FX_MIN_HEADROOM_MS } from "./wringer";
 import { parseAwxTime } from "../webhooks/inbox";
+import { finishRequest, takeRequestSlot } from "../ledger/remote";
 
 /** Both keys: planner proposed it, Wringer raised no blocking objection. Then the human gate. */
 export function decide(ledger: MemoryLedger, proposal: Proposal, findings: Finding[], thresholdUsd: number, now: number): Decision {
@@ -62,7 +63,11 @@ export async function execute(ledger: MemoryLedger, awx: AirwallexClient, decisi
     let airwallexId: string | undefined;
     let result: "ok" | "already_done" | "error" = "ok";
     try {
-      if (a.kind === "defer_payout") {
+      const slot = await takeRequestSlot({ decisionId: decision.id, requestId, actionKind: a.kind });
+      if (slot === "taken") {
+        result = "already_done";
+        response = { ledger: "request_id already claimed" };
+      } else if (a.kind === "defer_payout") {
         deferredPayouts.add(a.payoutId);
         response = { deferred: a.payoutId, until: a.until };
       } else if (a.kind === "fx_conversion") {
@@ -108,6 +113,11 @@ export async function execute(ledger: MemoryLedger, awx: AirwallexClient, decisi
     }
     const ex = { id: ledger.id("exe"), decisionId: decision.id, requestId, actionKind: a.kind, result, airwallexId, response, createdAt: now };
     ledger.executions.push(ex);
+    try {
+      await finishRequest(ex);
+    } catch {
+      /* The local row and the Airwallex lookup still block a second send. */
+    }
     out.push(ex);
     if (result === "error") break; // never pay after a failed funding step
   }

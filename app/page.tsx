@@ -1,9 +1,14 @@
-// Bare placeholder. The UI pass must follow docs/frontend-design-SKILL.md verbatim.
-export default function Page() {
+import { Desk } from "./desk";
+import { getDeskView } from "@/lib/desk/session";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+export default async function Page() {
+  const view = await getDeskView();
   return (
     <main>
-      <h1>Two-Key</h1>
-      <p>Placeholder. Run <code>npm run demo</code> for the mock scenario.</p>
+      <Desk view={view} />
     </main>
   );
 }
