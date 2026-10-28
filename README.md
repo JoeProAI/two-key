@@ -17,6 +17,7 @@ npm run demo -- stale-quote    # 1-minute quote goes stale, Wringer blocks, plan
 npm run demo -- approval       # $25k payout waits 90 min for the tap, then pays once
 npm run demo -- approval-timeout  # same payout, no tap within 4 hours: expires, nothing moves
 npm run check                  # lint + typecheck + tests + build-and-scan for leaked keys
+AIRWALLEX_MODE=live npm run live-smoke   # sandbox host only: login, balances, FX quote, conversion, and a transfer that ends CANCELLED. Refuses any other AIRWALLEX_BASE_URL. Not part of check. See docs/ops-note.md.
 npm run dev                    # bare placeholder page + webhook route
 ```
 
@@ -87,7 +88,7 @@ Answered from the Airwallex docs (checked Oct 13, 2026). Mocks now match these.
 Still open:
 
 - **Duplicate `request_id` on `/fx/conversions/create`:** the docs only say such requests "will be rejected". The listed 400 codes (`invalid_argument`, `operation_failed`, ...) include no dedicated one. The mock uses 400 `request_id_duplicate` to mirror transfers. The executor does not depend on the code, because it looks the request_id up before creating and after any create error.
-- **Does `payout.transfer.cancelled` fire after the auto-cancel of a FAILED transfer?** The docs say failed transfers "will be automatically cancelled in seconds" and map CANCELLED to `payout.transfer.cancelled` ([Transfer statuses](https://www.airwallex.com/docs/payouts/transfers/create-a-transfer/transfer-statuses.md)), but never say outright that the event fires on the automatic path. The demo assumes it does. The executor re-reads the transfer with GET before paying, so a missing event can't cause a double payment. Confirm in the sandbox.
+- **Does `payout.transfer.cancelled` fire after the auto-cancel of a FAILED transfer?** The docs say failed transfers "will be automatically cancelled in seconds" and map CANCELLED to `payout.transfer.cancelled` ([Transfer statuses](https://www.airwallex.com/docs/payouts/transfers/create-a-transfer/transfer-statuses.md)), but never say outright that the event fires on the automatic path. The demo assumes it does. The executor re-reads the transfer with GET before paying, so a missing event can't cause a double payment. Sandbox smoke on 2026-10-27: `POST /api/v1/simulation/transfers/{id}/transition` with `FAILED` returned `failure_reason` `90301: Beneficiary name mismatch`, and the immediate GET was already `CANCELLED`. No webhook subscription was created, so delivery of `payout.transfer.cancelled` is still unconfirmed. See `docs/ops-note.md`.
 - **Minimum headroom on a quote before converting:** not in the docs. 60 seconds is assumed.
 - **Approval timeout length:** 4 hours is a product choice, not an Airwallex rule. Joe should pick the real number.
 - **Judging criteria** aren't published yet.
