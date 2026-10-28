@@ -80,3 +80,33 @@ The first beneficiary create returned 400 `validation_failed` on `beneficiary.ba
 ### Rerun
 
 The second `npm run live-smoke` printed `already_done` for conversion `32a3bfa6-0c1e-408b-986e-84a45f472449` (`SETTLED`) and transfer `4e1dab1a-c59b-413b-92d5-813f6caafd59` (`CANCELLED`). Hops: `already CANCELLED`. No second create, no second transition.
+
+## Pass rules (2026-10-28)
+
+The smoke now fails unless all three of these are true. A conversion alone is not a pass.
+
+- Quote created.
+- Conversion created or found `SETTLED` (or any non-`CANCELLED` status) under the stable `request_id`. A `CANCELLED` conversion is not counted, and the script does not create a replacement.
+- Transfer proof is `CANCELLED` only. `FAILED`, `SENT`, and `PAID` are not a pass. The driver throws if the final status is anything else, including when an explicit `CANCELLED` transition comes back `FAILED`.
+
+Beneficiary reuse is an exact nickname match on `two-key-smoke-supplier`. A list that does not contain that nickname is not reused, including the first row.
+
+If a currency is under the 40 major-unit floor and `ensureCurrency` returns `blocked` or `short`, the script throws before the conversion lookup and before the transfer. A wallet that is already above the floor logs `sufficient (no deposit)` and does not call the deposit endpoint.
+
+`AIRWALLEX_BASE_URL` must be `https://api.sandbox.airwallex.com` (or unset, which uses that origin). Any other host, including `https://api.airwallex.com`, throws `Sandbox only` before `createLiveClient`. A local run with the production host exited 1 and printed no login line.
+
+### Rerun (2026-10-28)
+
+`AIRWALLEX_MODE=live npm run live-smoke` exited 0. Host `https://api.sandbox.airwallex.com`.
+
+| Step | Endpoint | Result |
+|---|---|---|
+| Login | `POST /api/v1/authentication/login` | 201 |
+| Balances | `GET /api/v1/balances/current` | 200. EUR `9999990.99`, USD `10000010`. Same as after the 2026-10-27 payout refund. No deposit. |
+| FX quote | `POST /api/v1/fx/quotes/create` | ok. `quote_id` `4fe65683-dd87-3ea0-94b7-2f3436f3d064`. EUR to USD, `client_rate` 1.105814, buy 10, sell 9.04, `valid_to` `2026-10-28T01:37:50+0000`. |
+| Conversion | `GET /api/v1/fx/conversions?request_id=` | `already_done`. `32a3bfa6-0c1e-408b-986e-84a45f472449` `SETTLED`. No second create. |
+| Transfer | `GET /api/v1/transfers?request_id=` | `already_done`. `4e1dab1a-c59b-413b-92d5-813f6caafd59` `CANCELLED`. No second create and no transition POST. Hops: `already CANCELLED`. |
+
+Final line: `result pass quote=true conversion=true transfer=true`.
+
+`npm run check` in mock mode: lint, typecheck, 56 tests, leak-scan clean. The log from this rerun does not contain the client id, the API key, or a bearer token.
