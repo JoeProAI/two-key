@@ -5,6 +5,8 @@ import { CLAIM_LEASE_MS, finishDecision } from "@/lib/ledger/claim";
 import { createMockClient } from "@/lib/airwallex/mock";
 import { resetLedgerRemoteForTests, setLedgerApiForTests, setLedgerBackendForTests } from "@/lib/ledger/remote";
 import { runDemo } from "@/lib/scenario";
+import { stableRequestId } from "@/lib/requestId";
+import { approveSession, openPlan, replaySession, resetDeskForTests } from "@/lib/desk/session";
 
 type Row = Record<string, unknown> & { _id: string };
 
@@ -39,7 +41,10 @@ const finish = (result: "ok" | "error" | "already_done", owner: string, extra: R
   key: "exe_1", decisionKey: "dec_1", requestId: "req_retry", actionKind: "retry_transfer", result, owner, response: { result }, createdAt: 1, ...extra,
 });
 
-afterEach(() => resetLedgerRemoteForTests());
+afterEach(() => {
+  resetLedgerRemoteForTests();
+  resetDeskForTests();
+});
 
 describe("execution claim with an owner and a lease", () => {
   it("gives a second worker busy while the first holds a live claim", async () => {
@@ -102,5 +107,42 @@ describe("execution claim with an owner and a lease", () => {
     expect(claims[0]).toMatchObject({ owner: expect.any(String) });
     expect(res.executions).toHaveLength(1);
     expect(res.executions[0].result).toBe("error");
+  });
+});
+
+describe("replay keeps the original successful execution", () => {
+  it("does not replace ok with already_done", async () => {
+    const { ctx, rows } = fakeCtx();
+    await claimHandler(ctx, { ...slot, owner: "A" }, 1_000);
+    await finishHandler(ctx, finish("ok", "A", { airwallexId: "tr_1", response: { id: "tr_1", status: "PROCESSING" } }));
+    expect(await finishHandler(ctx, finish("already_done", "B", { response: { ledger: "request_id already claimed" } }))).toEqual({ wrote: "replay" });
+    expect(await finishHandler(ctx, finish("ok", "C", { airwallexId: "tr_other" }))).toEqual({ wrote: "kept" });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ result: "ok", airwallexId: "tr_1", response: { id: "tr_1", status: "PROCESSING" }, replays: 1 });
+  });
+
+  it("desk replay synced through Convex keeps both Airwallex ids", async () => {
+    const { ctx, rows } = fakeCtx();
+    const strip = (args: Record<string, unknown>) => Object.fromEntries(Object.entries(args).filter(([k]) => k !== "secret"));
+    setLedgerBackendForTests("convex");
+    setLedgerApiForTests({
+      upsert: async (args) => {
+        for (const ex of (args.executions as Record<string, unknown>[])) await finishHandler(ctx, ex as Parameters<typeof finishHandler>[1]);
+        return {};
+      },
+      claim: async (args) => claimHandler(ctx, strip(args) as Parameters<typeof claimHandler>[1]),
+      finish: async (args) => finishHandler(ctx, strip(args) as Parameters<typeof finishHandler>[1]),
+      load: async () => null,
+    });
+    await openPlan();
+    await approveSession("joe");
+    const retry = stableRequestId("intent_inv2291", "retry_transfer", "0");
+    const conversion = stableRequestId("intent_inv2291", "fx_conversion");
+    const before = rows.filter((r) => r.result === "ok").map((r) => [r.requestId, r.airwallexId]);
+    expect(before.map(([id]) => id)).toEqual(expect.arrayContaining([retry, conversion]));
+    await replaySession("joe");
+    const after = rows.filter((r) => r.result === "ok").map((r) => [r.requestId, r.airwallexId]);
+    expect(after).toEqual(before);
+    expect(rows.find((r) => r.requestId === retry)).toMatchObject({ result: "ok", replays: expect.any(Number) });
   });
 });

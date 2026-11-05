@@ -59,6 +59,8 @@ export default defineSchema({
     airwallexId: v.optional(v.string()),
     owner: v.optional(v.string()), // worker that holds a `claimed` row
     leaseUntil: v.optional(v.number()), // a `claimed` row older than this may be taken over after a request_id lookup
+    replays: v.optional(v.number()), // replays that found this request_id already done; the original result stays
+    lastReplayAt: v.optional(v.number()),
     response: v.any(),
     createdAt: v.number(),
   }).index("by_key", ["key"]).index("by_request_id", ["requestId"]),

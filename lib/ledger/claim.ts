@@ -32,13 +32,16 @@ export interface FinishIncoming {
 
 /** How an outcome lands on the stored row for its request_id.
  *  `keep` leaves the stored row alone: a finished success is never downgraded, and a worker that does
- *  not own a live claim cannot overwrite it with an error. */
-export type FinishVerdict = "insert" | "patch" | "keep";
+ *  not own a live claim cannot overwrite it with an error. `replay` keeps the stored success (result,
+ *  response, Airwallex id) and only counts the replay. The first `ok` for a request_id is never replaced. */
+export type FinishVerdict = "insert" | "patch" | "keep" | "replay";
 
 export function finishDecision(prior: ClaimPrior | null, incoming: FinishIncoming): FinishVerdict {
   if (!prior) return "insert";
   const failing = incoming.result === "error" || incoming.result === "claimed";
-  if ((prior.result === "ok" || prior.result === "already_done") && failing) return "keep";
+  if ((prior.result === "ok" || prior.result === "already_done") && incoming.result === "already_done") return "replay";
+  if (prior.result === "ok") return "keep";
+  if (prior.result === "already_done" && failing) return "keep";
   if (prior.result === "claimed" && failing && incoming.owner !== prior.owner) return "keep";
   return "patch";
 }

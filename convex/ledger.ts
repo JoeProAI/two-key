@@ -48,7 +48,7 @@ export const timeline = queryGeneric({
     ctx.db.query("webhookEvents").withIndex("by_object_created", (q) => q.eq("objectId", objectId)).collect(),
 });
 
-type ExecRow = { _id: GenericId<"executions">; result?: string; requestId?: string; owner?: string; leaseUntil?: number };
+type ExecRow = { _id: GenericId<"executions">; result?: string; requestId?: string; owner?: string; leaseUntil?: number; replays?: number };
 
 function priorOf(row: ExecRow | null) {
   return row ? { result: String(row.result), owner: row.owner, leaseUntil: row.leaseUntil } : null;
@@ -124,11 +124,16 @@ type FinishArgs = {
 };
 
 /** Write the outcome of a claimed slot. A finished ok / already_done row is not downgraded, and only the
- *  owner of a live claim can turn it into an error. */
+ *  owner of a live claim can turn it into an error. A replay that finds the request_id already done keeps
+ *  the stored result, response and airwallexId and bumps `replays`. */
 export async function finishHandler(ctx: GenericMutationCtx<GenericDataModel>, ex: FinishArgs) {
   const prior = await execByRequestId(ctx, ex.requestId);
   const verdict = finishDecision(priorOf(prior), ex);
   if (verdict === "keep") return { wrote: "kept" };
+  if (verdict === "replay" && prior) {
+    await ctx.db.patch(prior._id, { replays: (prior.replays ?? 0) + 1, lastReplayAt: ex.createdAt });
+    return { wrote: "replay" };
+  }
   if (verdict === "insert" || !prior) {
     await ctx.db.insert("executions", ex);
     return { wrote: "insert" };
@@ -151,7 +156,8 @@ const action = v.union(
   v.object({ kind: v.literal("defer_payout"), payoutId: v.string(), amount: v.number(), currency: v.string(), until: v.string() }),
 );
 
-/** Replace the narrative rows for one intent and upsert executions by request_id. */
+/** Replace the narrative rows for one intent and upsert executions by request_id with the finish rules,
+ *  so a replay synced as already_done never erases the original successful send. */
 export const upsertIncident = mutationGeneric({
   args: {
     secret: v.string(),
