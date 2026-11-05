@@ -65,4 +65,8 @@ export interface DeskView {
   plannerSeated: boolean;
   wringerSeated: boolean;
   keyReason: string;
+  /** The desk key gate is closed for this visitor. Nothing from the shared ledger is in this view. */
+  locked: boolean;
+  lockNote: string | null;
+  canUnlock: boolean;
 }

@@ -9,7 +9,10 @@ import { approve, execute } from "../agents/executor";
 import { agentMode } from "../agents/openrouter";
 import { ledgerBackend, loadIncident, syncIncident } from "../ledger/remote";
 import { ledgerFromRemote, type RemoteIncident } from "../ledger/payload";
+import { assertDeskAccess, gateState, type DeskAccess, type GateState } from "./gate";
 import type { DeskRound, DeskView, DeskWebhook } from "./types";
+
+const NO_ACCESS: DeskAccess = { unlocked: false };
 
 const INTENT_ID = "intent_inv2291";
 
@@ -152,6 +155,9 @@ function baseView(partial: Partial<DeskView> & Pick<DeskView, "phase" | "rounds"
     plannerSeated: false,
     wringerSeated: false,
     keyReason: "",
+    locked: false,
+    lockNote: null,
+    canUnlock: false,
     ...partial,
   };
   view.blockCount = view.rounds.at(-1)?.findings.filter((f) => f.severity === "block").length ?? 0;
@@ -247,7 +253,8 @@ async function project(s: Session) {
   }
 }
 
-export async function openPlan() {
+export async function openPlan(access: DeskAccess = NO_ACCESS) {
+  assertDeskAccess(access);
   if (store.session && store.session.phase !== "failed") return;
   // A replan after a failed send keeps the same Airwallex state: whatever did move stays moved.
   const awx = store.session?.awx ?? createMockClient();
@@ -259,7 +266,8 @@ export async function openPlan() {
   await project(store.session);
 }
 
-export async function approveSession(who: string) {
+export async function approveSession(who: string, access: DeskAccess = NO_ACCESS) {
+  assertDeskAccess(access);
   const current = store.session ?? (await restoreFromLedger());
   if (!current) throw new Error("Plan the incident before approving.");
   if (current.phase === "paid") return;
@@ -294,7 +302,8 @@ function failureCopy(kind: Action["kind"], response: unknown): string {
   return `${ACTION_NAMES[kind]} failed: ${detail}. Nothing was marked paid. Retry the approved plan or replan.`;
 }
 
-export async function replaySession(who: string) {
+export async function replaySession(who: string, access: DeskAccess = NO_ACCESS) {
+  assertDeskAccess(access);
   const current = store.session;
   if (!current || current.phase !== "paid") throw new Error("Pay once before replaying.");
   const ledger = new MemoryLedger();
@@ -305,7 +314,27 @@ export async function replaySession(who: string) {
   await project(current);
 }
 
-export async function getDeskView(): Promise<DeskView> {
+/** What a visitor without the desk key sees: the fixture incident only. No session, no Convex read. */
+function lockedView(gate: Extract<GateState, "locked" | "unconfigured">, keyMissed: boolean): DeskView {
+  return baseView({
+    phase: "incident",
+    rounds: [],
+    receipt: null,
+    canPlan: false,
+    canApprove: false,
+    canReplay: false,
+    error: keyMissed ? "That desk key did not match." : null,
+    locked: true,
+    canUnlock: gate === "locked",
+    lockNote: gate === "locked"
+      ? "This desk is locked. Enter the desk key to open the ledger, plan, and approve."
+      : "This desk has no desk key set on the server, so the shared ledger stays closed.",
+  });
+}
+
+export async function getDeskView(access: DeskAccess = NO_ACCESS, opts: { keyMissed?: boolean } = {}): Promise<DeskView> {
+  const gate = gateState(access);
+  if (gate === "locked" || gate === "unconfigured") return lockedView(gate, Boolean(opts.keyMissed));
   if (store.session) return viewFromSession(store.session);
   if (ledgerBackend() === "convex") {
     try {

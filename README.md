@@ -37,6 +37,7 @@ npm run dev                    # desk UI for the $40k incident. Open the printed
 | `NEXT_PUBLIC_CONVEX_URL` | client | Written by `npx convex dev` |
 | `CONVEX_URL` | server | Convex deployment URL for the webhook route (falls back to `NEXT_PUBLIC_CONVEX_URL`) |
 | `TWO_KEY_INGEST_SECRET` | server and Convex env, Runtime Secret | Guards public ledger mutations (`ingestWebhook`, `upsertIncident`, `claimExecutionPublic`, `finishExecution`, `getIncident`). Unset means webhooks and the desk stay on the in-memory store. |
+| `DESK_APPROVE_SECRET` | server, Runtime Secret | Desk key. When set, plan, approve, replay and the Convex ledger view need it. The desk asks for it once and keeps an httpOnly cookie (an HMAC of the key, not the key). Required when Convex is configured: without it the shared desk stays closed. Unset with no Convex means the public fixture demo. |
 
 Never give a secret a `NEXT_PUBLIC_` prefix. `tests/key-leak.test.ts` and `scripts/leak-scan.mjs` fail the check if a key name or value reaches client code or build output.
 
@@ -79,6 +80,7 @@ Checked as names only. Do not paste values into the repo, the desk, or chat.
 | `AIRWALLEX_WEBHOOK_SECRET` | `POST /api/webhooks/airwallex` signature check | The route returns 500. The mock desk does not need it. |
 | `CONVEX_URL` or `NEXT_PUBLIC_CONVEX_URL` | Convex webhook store, incident upsert, and the execution claim | `MemoryWebhookStore` and `MemoryLedger`. |
 | `TWO_KEY_INGEST_SECRET` | Same Convex path. Set the same value in the Convex deployment env and the Next server env. | In-memory store, even if a Convex URL is set. |
+| `DESK_APPROVE_SECRET` | Who may plan, approve, replay, and read the Convex incident on the desk | Public fixture desk. With Convex configured, the desk stays closed. |
 
 `npx convex dev` has not been run from this slice. After it is, point the server at that deployment. The schema in `convex/schema.ts` is the one to push. `npm run check` and `npm run demo` stay green with all of the above unset.
 

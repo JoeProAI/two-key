@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GenericDataModel, GenericMutationCtx } from "convex/server";
 import { claimHandler, finishHandler } from "@/convex/ledger";
 import { CLAIM_LEASE_MS, finishDecision } from "@/lib/ledger/claim";
@@ -41,7 +41,14 @@ const finish = (result: "ok" | "error" | "already_done", owner: string, extra: R
   key: "exe_1", decisionKey: "dec_1", requestId: "req_retry", actionKind: "retry_transfer", result, owner, response: { result }, createdAt: 1, ...extra,
 });
 
+const OPEN = { unlocked: true };
+
+beforeEach(() => {
+  vi.stubEnv("DESK_APPROVE_SECRET", "test-desk-key");
+});
+
 afterEach(() => {
+  vi.unstubAllEnvs();
   resetLedgerRemoteForTests();
   resetDeskForTests();
 });
@@ -134,13 +141,13 @@ describe("replay keeps the original successful execution", () => {
       finish: async (args) => finishHandler(ctx, strip(args) as Parameters<typeof finishHandler>[1]),
       load: async () => null,
     });
-    await openPlan();
-    await approveSession("joe");
+    await openPlan(OPEN);
+    await approveSession("joe", OPEN);
     const retry = stableRequestId("intent_inv2291", "retry_transfer", "0");
     const conversion = stableRequestId("intent_inv2291", "fx_conversion");
     const before = rows.filter((r) => r.result === "ok").map((r) => [r.requestId, r.airwallexId]);
     expect(before.map(([id]) => id)).toEqual(expect.arrayContaining([retry, conversion]));
-    await replaySession("joe");
+    await replaySession("joe", OPEN);
     const after = rows.filter((r) => r.result === "ok").map((r) => [r.requestId, r.airwallexId]);
     expect(after).toEqual(before);
     expect(rows.find((r) => r.requestId === retry)).toMatchObject({ result: "ok", replays: expect.any(Number) });

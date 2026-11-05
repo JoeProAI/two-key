@@ -1,7 +1,7 @@
 "use client";
 
 import { useFormStatus } from "react-dom";
-import { approveDesk, planDesk, replayDesk } from "./actions";
+import { approveDesk, planDesk, replayDesk, unlockDesk } from "./actions";
 import type { DeskView } from "@/lib/desk/types";
 
 function Submit({ idle, pending, disabled, className }: { idle: string; pending: string; disabled?: boolean; className?: string }) {
@@ -193,7 +193,18 @@ export function Desk({ view }: { view: DeskView }) {
           </div>
           <p className="request" id="key-reason">{view.keyReason}</p>
           <p className="request">Stable request id {view.requestId}</p>
-          {view.phase === "incident" ? null : view.canReplay ? (
+          {view.locked ? (
+            <div className="lock">
+              <p className="request">{view.lockNote}</p>
+              {view.canUnlock ? (
+                <form className="tap" action={unlockDesk}>
+                  <label htmlFor="desk-key">Desk key</label>
+                  <input id="desk-key" name="deskKey" type="password" autoComplete="current-password" maxLength={200} required />
+                  <Submit idle="Unlock the desk" pending="Checking the key" />
+                </form>
+              ) : null}
+            </div>
+          ) : view.phase === "incident" ? null : view.canReplay ? (
             <form className="replay" action={replayDesk}>
               <input type="hidden" name="approver" value="joe" />
               <Submit idle="Replay on an empty ledger" pending="Replaying" />
