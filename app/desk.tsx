@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { approveDesk, planDesk, replayDesk, unlockDesk } from "./actions";
 import type { DeskView } from "@/lib/desk/types";
@@ -13,61 +14,120 @@ function Submit({ idle, pending, disabled, className }: { idle: string; pending:
   );
 }
 
+function parseMoney(value: string): number {
+  const n = Number(value.replace(/,/g, ""));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function Floor({ available, floor }: { available: string; floor: string }) {
+  const have = parseMoney(available);
+  const mark = parseMoney(floor);
+  const max = Math.max(have, mark, 1);
+  return (
+    <div className="floor">
+      <div className="floor-label">
+        <span>USD available {available}</span>
+        <span>Floor {floor}</span>
+      </div>
+      <div className="floor-track" role="img" aria-label={`USD available ${available} against a floor of ${floor}`}>
+        <div className="floor-fill" style={{ width: `${Math.min(100, (have / max) * 100)}%` }} />
+        <div className="floor-mark" style={{ left: `${Math.min(100, (mark / max) * 100)}%` }} />
+      </div>
+    </div>
+  );
+}
+
 export function Desk({ view }: { view: DeskView }) {
+  const [offline, setOffline] = useState(false);
+  useEffect(() => {
+    const sync = () => setOffline(!navigator.onLine);
+    sync();
+    window.addEventListener("online", sync);
+    window.addEventListener("offline", sync);
+    return () => {
+      window.removeEventListener("online", sync);
+      window.removeEventListener("offline", sync);
+    };
+  }, []);
+  const usd = view.balances.find((row) => row.currency === "USD")?.available ?? view.balances[0]?.available ?? "0.00";
+
   return (
     <div className="desk-wrap">
       <header className="mast">
         <p className="kicker">Payment ops · Incident INV-2291</p>
         <div className="mast-row">
           <h1>Two-Key</h1>
-          <p className="case-no">Northwind Steel</p>
+          <p className="mode">{view.modeLabel}</p>
         </div>
-        <p className="lede">A $40,000 supplier payment failed on the account name. One retry. Two keys. A receipt.</p>
+        <p className="lede">A $40,000 supplier payment failed on the account name. One retry. Two keys. A receipt you can trace from the request to the balance.</p>
+        <p><a className="text-link" href="/fixture">Public fixture</a></p>
       </header>
 
+      {offline ? <p className="banner warning" role="status">This browser is offline. The sheet is the last page that loaded. A tap needs the server.</p> : null}
       {view.error ? <p className="banner" role="alert">{view.error}</p> : null}
       {view.warning ? <p className="banner warning">{view.warning}</p> : null}
 
+      <nav className="spine" aria-label="Evidence spine">
+        <ol>
+          {view.stations.map((station, index) => (
+            <li key={station.id}>
+              <a href={`#evidence-${station.id}`} data-state={station.state} aria-current={station.id === view.focus ? "true" : undefined}>
+                <span className="spine-index">{index + 1}</span>
+                <span className="spine-label">{station.label}</span>
+                <span className="spine-detail">{station.detail}</span>
+              </a>
+            </li>
+          ))}
+        </ol>
+      </nav>
+
       <div className="desk">
         <article className="sheet">
-          <div className="amount-break">
-            <div className="figures">
-              <p className="currency">{view.currency}</p>
-              <p className="amount">{view.amount}</p>
+          <section id="evidence-request" data-current={view.focus === "request" ? "true" : undefined}>
+            <h2>Request</h2>
+            <div className="amount-break">
+              <div className="figures">
+                <p className="currency">{view.currency}</p>
+                <p className="amount">{view.amount}</p>
+              </div>
+              <p className="stamp">Cancelled</p>
             </div>
-            <p className="stamp" aria-hidden="true">Cancelled</p>
-          </div>
-          <p className="failure">{view.failure}</p>
-          <dl className="meta">
-            <div>
-              <dt>Reference</dt>
-              <dd>{view.reference}</dd>
-            </div>
-            <div>
-              <dt>Transfer</dt>
-              <dd>{view.transferId}</dd>
-            </div>
-            <div>
-              <dt>Status</dt>
-              <dd>{view.status}</dd>
-            </div>
-            <div>
-              <dt>Beneficiary</dt>
-              <dd>{view.beneficiary}</dd>
-            </div>
-            <div>
-              <dt>Original request</dt>
-              <dd>{view.originalRequestId}</dd>
-            </div>
-          </dl>
+            <p className="failure">{view.failure}</p>
+            <dl className="meta">
+              <div><dt>Reference</dt><dd>{view.reference}</dd></div>
+              <div><dt>Transfer</dt><dd>{view.transferId}</dd></div>
+              <div><dt>Status</dt><dd>{view.status}</dd></div>
+              <div><dt>Beneficiary</dt><dd>{view.beneficiary}</dd></div>
+              <div><dt>Original request</dt><dd>{view.originalRequestId}</dd></div>
+              <div><dt>Stable retry</dt><dd>{view.requestId}</dd></div>
+            </dl>
+          </section>
 
-          <section className="tape">
-            <h2>Notices</h2>
+          <section id="evidence-cash" data-current={view.focus === "cash" ? "true" : undefined}>
+            <h2>Cash</h2>
+            <Floor available={usd} floor={view.reserve} />
+            <table>
+              <caption>Available balances, the USD floor, and the queued retainer.</caption>
+              <thead>
+                <tr><th scope="col">Currency</th><th scope="col">Available</th></tr>
+              </thead>
+              <tbody>
+                {view.balances.map((row) => (
+                  <tr key={row.currency}><td>{row.currency}</td><td>{row.available}</td></tr>
+                ))}
+                <tr><td>USD floor</td><td>{view.reserve}</td></tr>
+                <tr><td>{view.queuedLabel}</td><td>{view.queuedAmount}</td></tr>
+              </tbody>
+            </table>
+          </section>
+
+          <section className="tape" id="evidence-plan" data-current={view.focus === "plan" ? "true" : undefined}>
+            <h2>Notices and plan</h2>
             {view.webhooks.length === 0 ? (
-              <p className="empty">No notices ingested for this transfer. Wait for the failure, then run the planner.</p>
+              <p className="empty">No notices ingested for this transfer.</p>
             ) : (
               <table>
-                <caption>Arrival order. Duplicates and a late processing notice are marked.</caption>
+                <caption>Arrival order. Duplicates and a late processing notice are marked. The desk follows created-at.</caption>
                 <thead>
                   <tr>
                     <th scope="col">Event</th>
@@ -90,67 +150,24 @@ export function Desk({ view }: { view: DeskView }) {
                 </tbody>
               </table>
             )}
-            <p className="note">Arrival order ends on PROCESSING. Created-at order ends on CANCELLED. The desk follows created-at, then a fresh read of the transfer.</p>
-          </section>
-
-          <section className="balances">
-            <h2>Balances now</h2>
-            <table>
-              <caption>Available balances, the USD floor, and the queued retainer.</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Currency</th>
-                  <th scope="col">Available</th>
-                </tr>
-              </thead>
-              <tbody>
-                {view.balances.map((row) => (
-                  <tr key={row.currency}>
-                    <td>{row.currency}</td>
-                    <td>{row.available}</td>
-                  </tr>
-                ))}
-                <tr>
-                  <td>USD floor</td>
-                  <td>{view.reserve}</td>
-                </tr>
-                <tr>
-                  <td>{view.queuedLabel}</td>
-                  <td>{view.queuedAmount}</td>
-                </tr>
-              </tbody>
-            </table>
-          </section>
-
-          <section className="rounds">
-            <h2>Rounds</h2>
-            {view.rounds.length === 0 ? (
-              <p className="empty">No plan filed. The failed transfer is the only thing on the sheet.</p>
-            ) : view.rounds.map((round) => (
-              <article className="round" key={round.round}>
-                <p className="round-no">Round {round.round}</p>
-                <p className="summary">{round.summary}</p>
-                <ul>
-                  {round.actions.map((action) => (
-                    <li key={`${round.round}-${action.kind}-${action.requestId ?? action.detail}`}>
-                      <strong>{action.kind}.</strong> {action.detail}
-                      {action.requestId ? <div className="request">{action.requestId}</div> : null}
-                    </li>
-                  ))}
-                </ul>
-                {round.findings.map((finding) => (
-                  <p className={finding.severity === "block" ? "finding block" : "finding"} key={`${round.round}-${finding.check}`}>
-                    <span className="check">{finding.severity === "block" ? "Block" : "Note"} · {finding.check}</span>
-                    <br />
-                    {finding.detail}
-                  </p>
-                ))}
-                <p className="decision">
-                  Decision: {round.decision}
-                  {round.approvedBy ? `, approved by ${round.approvedBy}` : ""}
-                </p>
-              </article>
-            ))}
+            <div className="rounds">
+              {view.rounds.length === 0 ? (
+                <p className="empty">No plan filed. The failed transfer is the only thing on the sheet.</p>
+              ) : view.rounds.map((round) => (
+                <article className="round" key={round.round}>
+                  <p className="round-no">Round {round.round}</p>
+                  <p className="summary">{round.summary}</p>
+                  <ul>
+                    {round.actions.map((action) => (
+                      <li key={`${round.round}-${action.kind}-${action.requestId ?? action.detail}`}>
+                        <strong>{action.kind}.</strong> {action.detail}
+                        {action.requestId ? <div className="request">{action.requestId}</div> : null}
+                      </li>
+                    ))}
+                  </ul>
+                </article>
+              ))}
+            </div>
             {view.canPlan ? (
               <form action={planDesk}>
                 <Submit className="ghost" idle={view.phase === "failed" ? "Replan with fresh balances" : "Run the planner"} pending="Filing the plan" />
@@ -158,41 +175,124 @@ export function Desk({ view }: { view: DeskView }) {
             ) : null}
           </section>
 
-          <section className="receipt-slip" aria-live="polite">
+          <section id="evidence-wringer" data-current={view.focus === "wringer" ? "true" : undefined}>
+            <h2>Wringer</h2>
+            {view.rounds.length === 0 ? <p className="empty">No objections yet. File a plan first.</p> : null}
+            {view.rounds.map((round) => (
+              <details key={`findings-${round.round}`} open={round.round === view.rounds.length}>
+                <summary>Round {round.round} objections</summary>
+                {round.findings.length === 0 ? <p className="empty">No objection on this round.</p> : round.findings.map((finding) => (
+                  <p className={finding.severity === "block" ? "finding block" : "finding"} key={`${round.round}-${finding.check}`}>
+                    <span className="check">{finding.severity === "block" ? "Block" : "Note"} · {finding.check}</span>
+                    <br />
+                    {finding.detail}
+                  </p>
+                ))}
+              </details>
+            ))}
+          </section>
+
+          <section id="evidence-approval" data-current={view.focus === "approval" ? "true" : undefined}>
+            <h2>Approval</h2>
+            {view.rounds.length === 0 ? <p className="empty">Nothing is waiting for a tap.</p> : view.rounds.map((round) => (
+              <p className="decision" key={`decision-${round.round}`}>
+                Round {round.round}: {round.decision}
+                {round.approvedBy ? `, approved by ${round.approvedBy}` : ""}
+              </p>
+            ))}
+            <p className="note">A tap is bound to this plan and this evidence. If either changes, the tap is refused.</p>
+          </section>
+
+          <section id="evidence-execution" data-current={view.focus === "execution" ? "true" : undefined}>
+            <h2>Execution</h2>
+            {view.executions.length === 0 ? (
+              <p className="empty">No execution yet.</p>
+            ) : (
+              <table className="exec-table">
+                <caption>Each row is one request id. already_done keeps the original provider id.</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Action</th>
+                    <th scope="col">Result</th>
+                    <th scope="col">Provider id</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {view.executions.map((ex) => (
+                    <tr key={`${ex.action}-${ex.requestId}-${ex.result}`}>
+                      <td>{ex.action}<div className="request">{ex.requestId}</div></td>
+                      <td>{ex.result}{ex.note ? <div className="request">{ex.note}</div> : null}</td>
+                      <td>{ex.providerId ?? ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+
+          <section id="evidence-balances" data-current={view.focus === "balances" ? "true" : undefined}>
+            <h2>Balances</h2>
+            <table>
+              <caption>Fixture balances before this run, and the balances on the sheet now.</caption>
+              <thead>
+                <tr><th scope="col">Currency</th><th scope="col">Before</th><th scope="col">Now</th></tr>
+              </thead>
+              <tbody>
+                {view.balances.map((row) => (
+                  <tr key={`after-${row.currency}`}>
+                    <td>{row.currency}</td>
+                    <td>{view.balancesBefore.find((b) => b.currency === row.currency)?.available ?? ""}</td>
+                    <td>{row.available}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+
+          <section id="evidence-replay" className="receipt-slip" data-current={view.focus === "replay" ? "true" : undefined} aria-live="polite">
             <h2>Receipt</h2>
             {view.receipt && view.receipt.length > 0 ? (
-              <pre>{view.receipt.join("\n")}</pre>
+              <details>
+                <summary>Plain receipt lines</summary>
+                <pre>{view.receipt.join("\n")}</pre>
+              </details>
             ) : (
-              <p className="empty">No receipt yet. A seated pair of keys and one tap write it.</p>
+              <p className="empty">No receipt yet. A seated pair of keys and one tap write it. A failed send does not get a paid receipt.</p>
             )}
             {view.transfersCreated !== null ? (
               <p className="counts">
-                <span>Transfers created: {view.transfersCreated}</span>
-                <span>Conversions created: {view.conversionsCreated}</span>
+                <span>Transfer calls: {view.transfersCreated}</span>
+                <span>Conversion calls: {view.conversionsCreated}</span>
                 {view.replayed ? <span>Replay on an empty ledger</span> : null}
               </p>
             ) : null}
+            {view.executions.some((row) => row.result === "error") ? (
+              <p className="note">An error row did not settle. The call count includes that attempt. The balances above are what remains.</p>
+            ) : null}
+            <p className="note">{view.replayed ? "Replay resolved already_done. The provider id did not change." : "Replay uses the same request id and does not create a second transfer."}</p>
           </section>
         </article>
 
         <aside className="rail">
           <h2>Keys</h2>
           <div className="keys" role="group" aria-label="Two keys">
-            <div className="tumbler" data-state={view.plannerSeated ? "seated" : "open"}>
+            <div className="tumbler" data-state={view.locked ? "closed" : view.plannerSeated ? "seated" : "open"}>
               <span className="slot" aria-hidden="true" />
               <span className="key-name">Planner</span>
-              <span className="key-state">{view.plannerSeated ? "Seated" : "Open"}</span>
+              <span className="key-state">{view.locked ? "Closed" : view.plannerSeated ? "Seated" : "Open"}</span>
             </div>
-            <div className="tumbler" data-state={view.wringerSeated ? "seated" : "open"}>
+            <div className="tumbler" data-state={view.locked ? "closed" : view.wringerSeated ? "seated" : "open"}>
               <span className="slot" aria-hidden="true" />
               <span className="key-name">Wringer</span>
               <span className="key-state">
-                {view.wringerSeated ? "Seated" : view.plannerSeated ? `Open. ${view.blockCount} blocks.` : "Open"}
+                {view.locked ? "Closed" : view.wringerSeated ? "Seated" : view.plannerSeated ? `Open. ${view.blockCount} blocks.` : "Open"}
               </span>
             </div>
           </div>
           <p className="request" id="key-reason">{view.keyReason}</p>
           <p className="request">Stable request id {view.requestId}</p>
+          {view.publicFixture ? <p className="note">{view.lockNote}</p> : null}
+          {view.downloadHref ? <p><a className="text-link" href={view.downloadHref}>Download the redacted receipt</a></p> : null}
           {view.locked ? (
             <div className="lock">
               <p className="request">{view.lockNote}</p>
@@ -204,7 +304,11 @@ export function Desk({ view }: { view: DeskView }) {
                 </form>
               ) : null}
             </div>
-          ) : view.phase === "incident" ? null : view.canReplay ? (
+          ) : view.publicFixture ? (
+            <p><a className="text-link" href="/">Ops desk</a></p>
+          ) : view.phase === "incident" ? (
+            <p><a className="text-link" href="/fixture">Public fixture</a></p>
+          ) : view.canReplay ? (
             <form className="replay" action={replayDesk}>
               <input type="hidden" name="approver" value="joe" />
               <Submit idle="Replay on an empty ledger" pending="Replaying" />
@@ -220,8 +324,11 @@ export function Desk({ view }: { view: DeskView }) {
       </div>
 
       <footer className="foot">
+        <span>{view.modeLabel}</span>
         <span>{view.modelLabel}</span>
         <span>Ledger: {view.ledgerLabel}</span>
+        <span>Fixture {view.provenance.fixture}</span>
+        <span>SHA {view.provenance.gitSha.slice(0, 12)}</span>
       </footer>
     </div>
   );

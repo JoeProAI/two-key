@@ -24,6 +24,27 @@ export interface DeskMoney {
   available: string;
 }
 
+export interface DeskStation {
+  id: string;
+  label: string;
+  state: "clear" | "hold" | "block" | "empty" | "unknown";
+  detail: string;
+}
+
+export interface DeskExecution {
+  action: string;
+  requestId: string;
+  result: string;
+  providerId: string | null;
+  note: string | null;
+}
+
+export interface DeskProvenance {
+  fixture: string;
+  gitSha: string;
+  runId: string;
+}
+
 export interface DeskWebhook {
   id: string;
   name: string;
@@ -69,4 +90,12 @@ export interface DeskView {
   locked: boolean;
   lockNote: string | null;
   canUnlock: boolean;
+  modeLabel: string;
+  focus: string;
+  stations: DeskStation[];
+  executions: DeskExecution[];
+  balancesBefore: DeskMoney[];
+  provenance: DeskProvenance;
+  publicFixture: boolean;
+  downloadHref: string | null;
 }

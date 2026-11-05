@@ -8,6 +8,7 @@ import { plan } from "./agents/planner";
 import { review } from "./agents/wringer";
 import { approve, decide, execute, expireIfStale } from "./agents/executor";
 import { round } from "./money";
+import { evidenceDigest } from "./receipt/bind";
 import { buildReceipt, runDemo } from "./scenario";
 
 async function situationFor(awx: AirwallexClient, intentId: string, now: number, transferId: string, deliveries: WebhookEvent<Transfer>[], queued: Situation["queuedPayouts"], thresholdUsd: number): Promise<Situation> {
@@ -51,11 +52,18 @@ export async function runStaleQuoteDemo(opts: { approver?: string; thinkMs?: num
     const findings = await review(s, p.actions);
     for (const f of findings) ledger.objections.push({ id: ledger.id("obj"), proposalId: proposal.id, author: "wringer", createdAt: clock, ...f });
     const decision = decide(ledger, proposal, findings, s.approvalThresholdUsd, clock);
+    decision.evidenceDigest = evidenceDigest({
+      balances: s.balances.map((b) => ({ currency: b.currency, available: b.available_amount })),
+      webhookStatus: s.webhook.statusByCreatedAt,
+      quoteId: s.quote?.quote_id,
+      reserve: s.reserve.amount,
+      queued: s.queuedPayouts.map((p) => ({ id: p.id, amount: p.amount })),
+    });
     rounds.push({ proposal, findings, decision, quote: s.quote });
     if (decision.status === "blocked") continue;
     if (decision.status === "awaiting_human") {
       if (!opts.approver) return { awx, ledger, rounds, executions: [], receipt: null };
-      approve(ledger, decision.id, opts.approver, clock);
+      approve(ledger, decision.id, opts.approver, clock, Infinity, decision.evidenceDigest);
     }
     const executions = await execute(ledger, awx, decision, proposal, clock, new Set());
     return { awx, ledger, rounds, executions, receipt: buildReceipt(ledger, intentId, clock) };
@@ -81,12 +89,19 @@ export async function runApprovalDemo(opts: { approveAfterMs?: number | null; ap
   const findings = await review(s, p.actions);
   for (const f of findings) ledger.objections.push({ id: ledger.id("obj"), proposalId: proposal.id, author: "wringer", createdAt: clock, ...f });
   const decision = decide(ledger, proposal, findings, s.approvalThresholdUsd, clock);
+  decision.evidenceDigest = evidenceDigest({
+    balances: s.balances.map((b) => ({ currency: b.currency, available: b.available_amount })),
+    webhookStatus: s.webhook.statusByCreatedAt,
+    quoteId: s.quote?.quote_id,
+    reserve: s.reserve.amount,
+    queued: s.queuedPayouts.map((p) => ({ id: p.id, amount: p.amount })),
+  });
   const waits: { at: number; status: string; transfersCreated: number }[] = [];
   const approveAt = opts.approveAfterMs == null ? null : fx.T0 + opts.approveAfterMs;
   let lateTapError: string | null = null;
   const tap = (at: number) => {
     try {
-      approve(ledger, decision.id, opts.approver ?? "joe", at, timeoutMs);
+      approve(ledger, decision.id, opts.approver ?? "joe", at, timeoutMs, decision.evidenceDigest);
     } catch (e) {
       lateTapError = (e as Error).message;
     }
@@ -114,17 +129,23 @@ export const SCENARIOS = {
   main: async () => {
     const awx = createMockClient();
     const res = await runDemo(awx, { approver: "joe" });
-    return { awx, receipt: res.receipt };
+    return { awx, receipt: res.receipt, ledger: res.ledger };
   },
   /** Main scenario twice against the same Airwallex account, the second time with an empty ledger. */
   rerun: async () => {
     const awx = createMockClient();
     await runDemo(awx, { approver: "joe" });
     const res = await runDemo(awx, { approver: "joe" });
-    return { awx, receipt: res.receipt };
+    return { awx, receipt: res.receipt, ledger: res.ledger };
   },
   "stale-quote": async () => runStaleQuoteDemo({ approver: "joe" }),
   approval: async () => runApprovalDemo({ approveAfterMs: 90 * 60_000 }),
   "approval-timeout": async () => runApprovalDemo({ approveAfterMs: null }),
+  /** Kit 01: a deposit after the blocked round changes only the funding size. Thresholds stay in code. */
+  deposit: async () => {
+    const awx = createMockClient();
+    const res = await runDemo(awx, { approver: "joe", depositUsd: 18000 });
+    return { awx, receipt: res.receipt, ledger: res.ledger };
+  },
 } as const;
 export type ScenarioName = keyof typeof SCENARIOS;

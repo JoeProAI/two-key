@@ -32,6 +32,18 @@ function same(a: string, b: string): boolean {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
+/** Used by the failure matrix. A caller with no cookie is rejected when a desk key is set, and nothing is sent. */
+export function anonymousDeskRejected(): boolean {
+  const env = { ...process.env, DESK_APPROVE_SECRET: "matrix-desk-key" } as NodeJS.ProcessEnv;
+  if (gateState({ unlocked: false }, env) !== "locked") return false;
+  try {
+    assertDeskAccess({ unlocked: false }, env);
+    return false;
+  } catch (e) {
+    return e instanceof DeskLockedError;
+  }
+}
+
 export function gateState(access: DeskAccess, env: NodeJS.ProcessEnv = process.env): GateState {
   const secret = deskSecret(env);
   if (!secret) return ledgerBackend(env) === "convex" ? "unconfigured" : "open";

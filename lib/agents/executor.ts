@@ -8,6 +8,7 @@ import { FX_MIN_HEADROOM_MS } from "./wringer";
 import { parseAwxTime } from "../webhooks/inbox";
 import { randomUUID } from "node:crypto";
 import { finishRequest, takeRequestSlot } from "../ledger/remote";
+import { planDigest } from "../receipt/bind";
 
 /** Both keys: planner proposed it, Wringer raised no blocking objection. Then the human gate. */
 export function decide(ledger: MemoryLedger, proposal: Proposal, findings: Finding[], thresholdUsd: number, now: number): Decision {
@@ -16,6 +17,7 @@ export function decide(ledger: MemoryLedger, proposal: Proposal, findings: Findi
   const d: Decision = {
     id: ledger.id("dec"), proposalId: proposal.id, plannerAgrees: true, wringerAgrees: !blocked,
     needsHuman: moneyOut >= thresholdUsd, status: blocked ? "blocked" : moneyOut >= thresholdUsd ? "awaiting_human" : "approved", createdAt: now,
+    boundDigest: planDigest(proposal.actions),
   };
   ledger.decisions.push(d);
   return d;
@@ -31,12 +33,15 @@ export function expireIfStale(ledger: MemoryLedger, decisionId: string, now: num
   return true;
 }
 
-export function approve(ledger: MemoryLedger, decisionId: string, who: string, now: number, timeoutMs = Infinity): Decision {
+export function approve(ledger: MemoryLedger, decisionId: string, who: string, now: number, timeoutMs = Infinity, evidenceNow?: string): Decision {
   const d = ledger.decisions.find((x) => x.id === decisionId);
   if (!d) throw new Error("no such decision");
   expireIfStale(ledger, decisionId, now, timeoutMs);
   if (d.status === "expired") throw new Error("Approval window closed; this decision expired and must be re-planned.");
   if (!d.wringerAgrees) throw new Error("Wringer blocked this decision; a human tap cannot override it here.");
+  if (d.evidenceDigest && evidenceNow && evidenceNow !== d.evidenceDigest) {
+    throw new Error("Evidence changed since this plan was filed. The tap is refused. Re-plan.");
+  }
   d.humanApprovedBy = who;
   d.humanApprovedAt = now;
   d.status = "approved";
@@ -50,6 +55,9 @@ export async function execute(ledger: MemoryLedger, awx: AirwallexClient, decisi
     throw new Error(`Decision ${decision.id} is ${decision.status}; executor refuses.`);
   }
   if (decision.needsHuman && !decision.humanApprovedBy) throw new Error("Needs human approval.");
+  if (decision.boundDigest && decision.boundDigest !== planDigest(proposal.actions)) {
+    throw new Error("The approved plan no longer matches the bound actions. Re-plan.");
+  }
   const order: Action["kind"][] = ["defer_payout", "fx_conversion", "retry_transfer"]; // fund before paying
   const actions = [...proposal.actions].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
   const owner = randomUUID();
@@ -58,6 +66,8 @@ export async function execute(ledger: MemoryLedger, awx: AirwallexClient, decisi
     const requestId = a.kind === "defer_payout" ? `defer:${a.payoutId}` : a.requestId;
     const prior = ledger.executionByRequestId(requestId);
     if (prior) {
+      prior.replays = (prior.replays ?? 0) + 1;
+      prior.lastReplayAt = now;
       out.push({ ...prior, result: "already_done" as const });
       continue;
     }
@@ -124,9 +134,13 @@ export async function execute(ledger: MemoryLedger, awx: AirwallexClient, decisi
       if (!busy) {
         const recorded = await finishRequest({ ...ex, owner });
         if (recorded === "rejected") {
+          // The shared row belongs to someone else. Dropping our provider id here does not undo a call that already left.
           ex.result = "error";
           ex.airwallexId = undefined;
-          ex.response = { message: "The shared ledger kept another worker's outcome for this request_id." };
+          ex.response = {
+            message: "The shared ledger kept another worker's outcome for this request_id. If this worker already called the provider, that call was not undone and its result is unknown here.",
+            providerCall: "issued_outcome_unknown",
+          };
         }
       }
     } catch {

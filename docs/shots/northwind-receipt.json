@@ -1,0 +1,225 @@
+{
+  "schema": "two-key.receipt.v1",
+  "mode": "MOCK",
+  "fixture": "main",
+  "gitSha": "unknown",
+  "runId": "demo-main",
+  "intent": {
+    "id": "intent_inv2291",
+    "title": "Pay Northwind Steel INV-2291 (USD 40,000) once"
+  },
+  "evidence": {
+    "balancesBefore": [
+      {
+        "currency": "USD",
+        "available": 22000
+      },
+      {
+        "currency": "EUR",
+        "available": 60000
+      }
+    ],
+    "reserve": {
+      "currency": "USD",
+      "amount": 10000
+    },
+    "queued": [
+      {
+        "id": "queued_marketing_7000",
+        "amount": 7000,
+        "currency": "USD",
+        "label": "Agency retainer, due in 9 days"
+      }
+    ],
+    "webhooks": [
+      {
+        "id": "evt_failed_01",
+        "name": "payout.transfer.failed",
+        "createdAt": "2026-11-02T13:50:00+0000",
+        "status": "FAILED",
+        "deliveries": 2
+      },
+      {
+        "id": "evt_cancel_02",
+        "name": "payout.transfer.cancelled",
+        "createdAt": "2026-11-02T13:50:10+0000",
+        "status": "CANCELLED",
+        "deliveries": 1
+      },
+      {
+        "id": "evt_proc_00",
+        "name": "payout.transfer.processing",
+        "createdAt": "2026-11-02T13:40:00+0000",
+        "status": "PROCESSING",
+        "deliveries": 1
+      }
+    ],
+    "quote": {
+      "id": "69087470-c249-4ed7-beb5-91611aec28bf",
+      "validTo": "2026-11-02T14:15:00+0000",
+      "buyAmount": 28000,
+      "sellCurrency": "EUR"
+    }
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "summary": "Retry USD 40000 to the supplier (2 failure notices received).",
+      "actions": [
+        {
+          "kind": "retry_transfer",
+          "originalTransferId": "43217eec-6053-4fe6-b[redacted-number]",
+          "amount": 40000,
+          "currency": "USD",
+          "beneficiaryId": "9a45987e-cffc-4f0a-81d[redacted-number]",
+          "reference": "INV-2291 Northwind Steel",
+          "requestId": "7ff012e1-94ad-76e3-0ebc-d5b0221e876e"
+        },
+        {
+          "kind": "retry_transfer",
+          "originalTransferId": "43217eec-6053-4fe6-b[redacted-number]",
+          "amount": 40000,
+          "currency": "USD",
+          "beneficiaryId": "9a45987e-cffc-4f0a-81d[redacted-number]",
+          "reference": "INV-2291 Northwind Steel",
+          "requestId": "c93b974a-9b7a-6cd2-edf7-063a370dc4af"
+        }
+      ],
+      "objections": [
+        {
+          "code": "duplicate_webhook",
+          "severity": "note",
+          "detail": "Event(s) evt_failed_01 x2 delivered more than once; counted once."
+        },
+        {
+          "code": "double_payment",
+          "severity": "block",
+          "detail": "2 retries proposed for one failed transfer (1 unique failure event). That pays the supplier 2 times."
+        },
+        {
+          "code": "unstable_request_id",
+          "severity": "block",
+          "detail": "Retry uses request_id c93b974a-9b7a-6cd2-edf7-063a370dc4af, not the intent's stable id."
+        },
+        {
+          "code": "out_of_order_webhook",
+          "severity": "note",
+          "detail": "Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}."
+        },
+        {
+          "code": "reserve_breach",
+          "severity": "block",
+          "detail": "USD would end at -65000 after queued payouts, below the 10000 reserve."
+        }
+      ],
+      "decision": "blocked",
+      "approvedBy": null,
+      "boundDigest": "769a192f978236cb48bb03d86696c654773a2fd6afc7e46718d58bb2af751faf",
+      "evidenceDigest": "46bbb2f5f3741ff6aa49ad62ae15c19dcf44d1fe61dd1951e2d354b9be1781bf"
+    },
+    {
+      "round": 2,
+      "summary": "Retry once with a stable request_id, buy 28000 USD with EUR at the quoted rate, defer 1 low-priority payout(s).",
+      "actions": [
+        {
+          "kind": "fx_conversion",
+          "buyCurrency": "USD",
+          "sellCurrency": "EUR",
+          "buyAmount": 28000,
+          "quoteId": "69087470-c249-4ed7-beb5-91611aec28bf",
+          "quoteValidToAt": "2026-11-02T14:15:00+0000",
+          "requestId": "cbed6cc7-350b-67aa-89c9-744f995ff038"
+        },
+        {
+          "kind": "retry_transfer",
+          "originalTransferId": "43217eec-6053-4fe6-b[redacted-number]",
+          "amount": 40000,
+          "currency": "USD",
+          "beneficiaryId": "9a45987e-cffc-4f0a-81d[redacted-number]",
+          "reference": "INV-2291 Northwind Steel",
+          "requestId": "7ff012e1-94ad-76e3-0ebc-d5b0221e876e"
+        },
+        {
+          "kind": "defer_payout",
+          "payoutId": "queued_marketing_7000",
+          "amount": 7000,
+          "currency": "USD",
+          "until": "after supplier settles"
+        }
+      ],
+      "objections": [
+        {
+          "code": "duplicate_webhook",
+          "severity": "note",
+          "detail": "Event(s) evt_failed_01 x2 delivered more than once; counted once."
+        },
+        {
+          "code": "out_of_order_webhook",
+          "severity": "note",
+          "detail": "Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}."
+        }
+      ],
+      "decision": "approved",
+      "approvedBy": "joe",
+      "boundDigest": "5cdb64b6ee5d33ae223a3068c3d0195b257c2061c1445a3541c0977784ad4eac",
+      "evidenceDigest": "df92fc02acec92f6b9e5c81b374fbd04e65fff55a927b153d95a538cdd3a443c"
+    }
+  ],
+  "executions": [
+    {
+      "action": "defer_payout",
+      "requestId": "defer:queued_marketing_7000",
+      "result": "ok",
+      "providerId": null,
+      "providerCall": "recorded",
+      "note": null
+    },
+    {
+      "action": "fx_conversion",
+      "requestId": "cbed6cc7-350b-67aa-89c9-744f995ff038",
+      "result": "ok",
+      "providerId": "d700d65f-9482-492d-a7ab-dd3c90fccc6a",
+      "providerCall": "recorded",
+      "note": null
+    },
+    {
+      "action": "retry_transfer",
+      "requestId": "7ff012e1-94ad-76e3-0ebc-d5b0221e876e",
+      "result": "ok",
+      "providerId": "d31c8552-4dda-4cdb-97eb-1888208a874f",
+      "providerCall": "recorded",
+      "note": null
+    }
+  ],
+  "resulting": {
+    "balancesAfter": [
+      {
+        "currency": "USD",
+        "available": 10000
+      },
+      {
+        "currency": "EUR",
+        "available": 34074.07
+      }
+    ],
+    "transfersCreated": 1,
+    "conversionsCreated": 1
+  },
+  "lines": [
+    "Round 1. Planner: Retry USD 40000 to the supplier (2 failure notices received).",
+    "  Wringer note [duplicate_webhook]: Event(s) evt_failed_01 x2 delivered more than once; counted once.",
+    "  Wringer BLOCK [double_payment]: 2 retries proposed for one failed transfer (1 unique failure event). That pays the supplier 2 times.",
+    "  Wringer BLOCK [unstable_request_id]: Retry uses request_id c93b974a-9b7a-6cd2-edf7-063a370dc4af, not the intent's stable id.",
+    "  Wringer note [out_of_order_webhook]: Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}.",
+    "  Wringer BLOCK [reserve_breach]: USD would end at -65000 after queued payouts, below the 10000 reserve.",
+    "  Decision: blocked",
+    "Round 2. Planner: Retry once with a stable request_id, buy 28000 USD with EUR at the quoted rate, defer 1 low-priority payout(s).",
+    "  Wringer note [duplicate_webhook]: Event(s) evt_failed_01 x2 delivered more than once; counted once.",
+    "  Wringer note [out_of_order_webhook]: Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}.",
+    "  Decision: approved, approved by joe",
+    "  Executed defer_payout request_id=defer:queued_marketing_7000: ok",
+    "  Executed fx_conversion request_id=cbed6cc7-350b-67aa-89c9-744f995ff038: ok (d700d65f-9482-492d-a7ab-dd3c90fccc6a)",
+    "  Executed retry_transfer request_id=7ff012e1-94ad-76e3-0ebc-d5b0221e876e: ok (d31c8552-4dda-4cdb-97eb-1888208a874f)"
+  ],
+  "note": "MOCK FIXTURE. No live money moved. Amounts come from the fixture client."
+}

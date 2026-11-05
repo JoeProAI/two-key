@@ -47,6 +47,8 @@ export default defineSchema({
     humanApprovedBy: v.optional(v.string()),
     humanApprovedAt: v.optional(v.number()),
     expiredAt: v.optional(v.number()),
+    boundDigest: v.optional(v.string()),
+    evidenceDigest: v.optional(v.string()),
     status: decisionStatus,
     createdAt: v.number(),
   }).index("by_key", ["key"]).index("by_proposal", ["proposalKey"]),

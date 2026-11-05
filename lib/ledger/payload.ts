@@ -39,6 +39,8 @@ export function toIncidentArgs(ledger: MemoryLedger, secret: string) {
       humanApprovedBy: d.humanApprovedBy,
       humanApprovedAt: d.humanApprovedAt,
       expiredAt: d.expiredAt,
+      boundDigest: d.boundDigest,
+      evidenceDigest: d.evidenceDigest,
       status: d.status,
       createdAt: d.createdAt,
     })),
@@ -78,6 +80,7 @@ export interface RemoteIncident {
   objections: { key?: string; proposalKey: string; check: string; severity: "block" | "note"; detail: string; createdAt?: number }[];
   decisions: {
     key?: string; proposalKey: string; status: string; humanApprovedBy?: string; humanApprovedAt?: number; expiredAt?: number;
+    boundDigest?: string; evidenceDigest?: string;
     plannerAgrees?: boolean; wringerAgrees?: boolean; needsHuman?: boolean; createdAt?: number;
   }[];
   executions: RemoteExecution[];
@@ -105,7 +108,9 @@ export function ledgerFromRemote(remote: RemoteIncident): MemoryLedger | null {
   for (const d of remote.decisions) {
     ledger.decisions.push({
       id: d.key!, proposalId: d.proposalKey, plannerAgrees: d.plannerAgrees ?? false, wringerAgrees: d.wringerAgrees ?? false, needsHuman: d.needsHuman ?? true,
-      humanApprovedBy: d.humanApprovedBy, humanApprovedAt: d.humanApprovedAt, expiredAt: d.expiredAt, status: d.status as Decision["status"], createdAt: at(d.createdAt),
+      humanApprovedBy: d.humanApprovedBy, humanApprovedAt: d.humanApprovedAt, expiredAt: d.expiredAt,
+      boundDigest: d.boundDigest, evidenceDigest: d.evidenceDigest,
+      status: d.status as Decision["status"], createdAt: at(d.createdAt),
     });
   }
   for (const e of remote.executions) {

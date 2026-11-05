@@ -184,6 +184,7 @@ export const upsertIncident = mutationGeneric({
     decisions: v.array(v.object({
       key: v.string(), proposalKey: v.string(), plannerAgrees: v.boolean(), wringerAgrees: v.boolean(), needsHuman: v.boolean(),
       humanApprovedBy: v.optional(v.string()), humanApprovedAt: v.optional(v.number()), expiredAt: v.optional(v.number()),
+      boundDigest: v.optional(v.string()), evidenceDigest: v.optional(v.string()),
       status: v.union(v.literal("blocked"), v.literal("awaiting_human"), v.literal("approved"), v.literal("expired")), createdAt: v.number(),
     })),
     executions: v.array(v.object({

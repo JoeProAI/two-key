@@ -7,9 +7,20 @@ import { plan } from "./agents/planner";
 import { review } from "./agents/wringer";
 import { approve, decide, execute } from "./agents/executor";
 import { round } from "./money";
+import { evidenceDigest } from "./receipt/bind";
+
+export function snapEvidence(situation: Situation): string {
+  return evidenceDigest({
+    balances: situation.balances.map((b) => ({ currency: b.currency, available: b.available_amount })),
+    webhookStatus: situation.webhook.statusByCreatedAt,
+    quoteId: situation.quote?.quote_id,
+    reserve: situation.reserve.amount,
+    queued: situation.queuedPayouts.map((p) => ({ id: p.id, amount: p.amount })),
+  });
+}
 
 /** Scripted demo: $40k supplier transfer failed, duplicate + out-of-order webhooks, EUR shortfall, deferred payout, one tap. */
-export async function runDemo(awx: AirwallexClient, opts: { approver?: string; now?: number; thresholdUsd?: number; ledger?: MemoryLedger } = {}) {
+export async function runDemo(awx: AirwallexClient, opts: { approver?: string; now?: number; thresholdUsd?: number; ledger?: MemoryLedger; depositUsd?: number } = {}) {
   const now = opts.now ?? fx.T0;
   const ledger = opts.ledger ?? new MemoryLedger();
   const inbox = new WebhookInbox();
@@ -36,6 +47,7 @@ export async function runDemo(awx: AirwallexClient, opts: { approver?: string; n
 
   const rounds = [];
   let objections: string[] = [];
+  let depositLine: string | null = null;
   for (let r = 1; r <= 3; r++) {
     if (r > 1) {
       // Fund the shortfall: transfer + reserve - available USD (low-priority payouts deferred).
@@ -49,20 +61,39 @@ export async function runDemo(awx: AirwallexClient, opts: { approver?: string; n
     const findings = await review(situation, p.actions);
     for (const f of findings) ledger.objections.push({ id: ledger.id("obj"), proposalId: proposal.id, author: "wringer", createdAt: now, ...f });
     const decision = decide(ledger, proposal, findings, situation.approvalThresholdUsd, now);
+    decision.evidenceDigest = snapEvidence(situation);
     rounds.push({ proposal, findings, decision });
     if (decision.status === "blocked") {
+      if (r === 1 && opts.depositUsd && opts.depositUsd > 0) {
+        const credit = (rows: { currency: string; available_amount: number; total_amount?: number }[] | undefined) => {
+          const usd = rows?.find((b) => b.currency === "USD");
+          if (!usd) return;
+          usd.available_amount += opts.depositUsd!;
+          if (usd.total_amount !== undefined) usd.total_amount += opts.depositUsd!;
+        };
+        credit(situation.balances);
+        credit((awx as { balances?: { currency: string; available_amount: number; total_amount?: number }[] }).balances);
+        depositLine = `Evidence: a USD ${opts.depositUsd} deposit arrived after round 1. The next plan uses the new balance. The blocked plan was not approved.`;
+      }
       objections = findings.filter((f) => f.severity === "block").map((f) => f.check);
       continue;
     }
     if (decision.status === "awaiting_human") {
-      if (!opts.approver) return { ledger, rounds, executions: [], receipt: null, awaiting: decision };
-      approve(ledger, decision.id, opts.approver, now);
+      if (!opts.approver) return { ledger, rounds, executions: [], receipt: null, awaiting: decision, depositLine };
+      approve(ledger, decision.id, opts.approver, now, Infinity, decision.evidenceDigest);
     }
     const executions = await execute(ledger, awx, decision, proposal, now, deferred);
+    if (executions.some((e) => e.result === "error")) {
+      return { ledger, rounds, executions, receipt: null, awaiting: null, depositLine };
+    }
     const receipt = buildReceipt(ledger, intent.id, now);
-    return { ledger, rounds, executions, receipt, awaiting: null, rerun: () => execute(ledger, awx, decision, proposal, now, deferred) };
+    if (depositLine) {
+      const at = receipt.lines.findIndex((line) => line.startsWith("Round 2"));
+      receipt.lines.splice(at < 0 ? receipt.lines.length : at, 0, `  ${depositLine}`);
+    }
+    return { ledger, rounds, executions, receipt, awaiting: null, depositLine, rerun: () => execute(ledger, awx, decision, proposal, now, deferred) };
   }
-  return { ledger, rounds, executions: [], receipt: null, awaiting: null };
+  return { ledger, rounds, executions: [], receipt: null, awaiting: null, depositLine };
 }
 
 export function buildReceipt(ledger: MemoryLedger, intentId: string, now: number) {

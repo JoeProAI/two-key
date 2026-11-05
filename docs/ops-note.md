@@ -135,4 +135,8 @@ To turn a piece on later, set the name as a Runtime Secret or in the server env.
 - Webhook ingest: set `AIRWALLEX_WEBHOOK_SECRET` on the route, and set `CONVEX_URL` plus `TWO_KEY_INGEST_SECRET` (same secret in the Convex deployment env) to store events in Convex. Missing either Convex value keeps the in-memory webhook store.
 - Ledger claim and receipt sync: the same `CONVEX_URL` and `TWO_KEY_INGEST_SECRET` pair. `npx convex dev` must be run so the deployment matches `convex/schema.ts`. Until then the desk uses `MemoryLedger`, which is enough for `npm run check` and for one local `npm run dev` process. Every public function in `convex/ledger.ts`, including the webhook `timeline` read, checks that secret before touching the database. There is no anonymous Convex read of incidents or webhook payloads. The fixture desk stays available when Convex is unset.
 
-Sandbox calls stay on `AIRWALLEX_MODE=live npm run live-smoke`, which refuses any base URL other than `https://api.sandbox.airwallex.com`.
+Sandbox calls stay on `AIRWALLEX_MODE=live npm run live-smoke`, which refuses any base URL other than `https://api.sandbox.airwallex.com`. `createLiveClient` now refuses that host check itself, before login.
+
+## Competitive slice (2026-11-05)
+
+No sandbox write and no new account. `lib/airwallex/corridor.ts` returns `ran: false`. With the client id and API key unset it names those env vars and does not invent ids. The public fixture is `/fixture` and `GET /fixture/receipt`. It does not read Convex. A measured mock receipt is in `docs/shots/northwind-receipt.json`. Counts are in `docs/JUDGE.md`.

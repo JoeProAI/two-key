@@ -19,6 +19,28 @@ import {
 // plus scripts/leak-scan.mjs check that neither the names nor the values reach a bundle.
 
 const REFRESH_MARGIN_MS = 5 * 60_000; // refresh 5 min before expires_at
+const SANDBOX_HOST = "api.sandbox.airwallex.com";
+
+/** Live calls may use only the Airwallex sandbox host. Production and any other host are refused. */
+export function sandboxOrigin(raw: string | undefined): string {
+  const input = raw?.trim() || `https://${SANDBOX_HOST}`;
+  let url: URL;
+  try {
+    url = new URL(input);
+  } catch {
+    throw new Error("AIRWALLEX_BASE_URL is not a URL. Sandbox only.");
+  }
+  if (url.protocol !== "https:" || url.hostname !== SANDBOX_HOST || url.username || url.password) {
+    throw new Error(`Refusing host ${url.hostname || "(none)"}. Sandbox only (https://${SANDBOX_HOST}).`);
+  }
+  return url.origin;
+}
+
+/** Names only. Empty when the sandbox client can be constructed. Does not read or print values. */
+export function missingSandboxEnv(env: NodeJS.ProcessEnv): string[] {
+  const names = ["AIRWALLEX_CLIENT_ID", "AIRWALLEX_API_KEY"] as const;
+  return names.filter((name) => !env[name]);
+}
 
 export interface SandboxOps {
   /** POST /api/v1/authentication/login. Returns the HTTP status only, never the token. */
@@ -38,7 +60,7 @@ export function createLiveClient(env: NodeJS.ProcessEnv = process.env, fetchImpl
   if (!clientId || !apiKey) {
     throw new Error("AIRWALLEX_MODE=live needs AIRWALLEX_CLIENT_ID and AIRWALLEX_API_KEY (server env only).");
   }
-  const base = env.AIRWALLEX_BASE_URL || "https://api.sandbox.airwallex.com";
+  const base = sandboxOrigin(env.AIRWALLEX_BASE_URL);
   const loginAs = env.AIRWALLEX_LOGIN_AS;
   let token: { value: string; expiresAt: number } | null = null;
 

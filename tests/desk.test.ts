@@ -2,12 +2,23 @@ import { afterEach, describe, expect, it } from "vitest";
 import { stableRequestId } from "@/lib/requestId";
 import { approveSession, cleanApprover, getDeskView, openPlan, replaySession, resetDeskForTests } from "@/lib/desk/session";
 import { resetLedgerRemoteForTests } from "@/lib/ledger/remote";
+import { AirwallexError } from "@/lib/airwallex/types";
 import type { createMockClient } from "@/lib/airwallex/mock";
 
 type DeskStore = { __twoKeyDesk?: { session: { awx: ReturnType<typeof createMockClient> } | null } };
 const deskAwx = () => (globalThis as DeskStore).__twoKeyDesk!.session!.awx;
 
 const RETRY = stableRequestId("intent_inv2291", "retry_transfer", "0");
+
+function failNextConversion(awx: ReturnType<typeof createMockClient>) {
+  const orig = awx.createConversion.bind(awx);
+  awx.createConversion = async (body) => {
+    awx.createConversion = orig;
+    awx.calls.createConversion += 1;
+    void body;
+    throw new AirwallexError("insufficient funds", 400, "balance_insufficient");
+  };
+}
 
 afterEach(() => {
   resetDeskForTests();
@@ -66,9 +77,7 @@ describe("demo desk", () => {
 
   it("keeps a failed send recoverable instead of marking it paid", async () => {
     await openPlan();
-    const eur = deskAwx().balances.find((b) => b.currency === "EUR")!;
-    const eurBefore = eur.available_amount;
-    eur.available_amount = 0;
+    failNextConversion(deskAwx());
     await approveSession("joe");
     const failed = await getDeskView();
     expect(failed.phase).toBe("failed");
@@ -82,7 +91,6 @@ describe("demo desk", () => {
     expect(failed.canPlan).toBe(true);
     expect(failed.canReplay).toBe(false);
 
-    eur.available_amount = eurBefore;
     await approveSession("joe");
     const paid = await getDeskView();
     expect(paid.phase).toBe("paid");
@@ -93,7 +101,7 @@ describe("demo desk", () => {
 
   it("can replan after a failed send", async () => {
     await openPlan();
-    deskAwx().balances.find((b) => b.currency === "EUR")!.available_amount = 0;
+    failNextConversion(deskAwx());
     await approveSession("joe");
     expect((await getDeskView()).phase).toBe("failed");
     await openPlan();
@@ -101,6 +109,18 @@ describe("demo desk", () => {
     expect(replanned.phase).toBe("review");
     expect(replanned.canApprove).toBe(true);
     expect(replanned.rounds.at(-1)?.decision).toBe("awaiting_human");
+  });
+
+  it("refuses a tap after the cash evidence changes", async () => {
+    await openPlan();
+    const usd = deskAwx().balances.find((b) => b.currency === "USD")!;
+    usd.available_amount += 1;
+    await expect(approveSession("joe")).rejects.toThrow(/Evidence changed/);
+    const view = await getDeskView();
+    expect(view.phase).toBe("review");
+    expect(view.transfersCreated).toBe(0);
+    expect(view.conversionsCreated).toBe(0);
+    expect(view.receipt).toBeNull();
   });
 
   it("cleans the approver down to a short name", () => {

@@ -4,21 +4,33 @@ A payment ops agent for the Airwallex Agentic Banking Hackathon. It fixes failed
 
 Each money move needs two keys. The **planner** drafts the fix: retry the transfer, convert funds with an FX quote, or defer a low-priority payout. The **Wringer** tries to break the plan. It looks for duplicate or out-of-order webhooks, CANCELLED vs FAILED, stale FX quotes, and reserve breaches. The **executor** runs a plan only when both agree, uses one stable `request_id` per intent and action, and waits for a human tap at or above `APPROVAL_THRESHOLD_USD`. Every step lands in the ledger and comes out as a receipt.
 
-Status: mock $40k desk runs with no model key and no Convex deployment. Live sandbox smoke has been run (see `docs/ops-note.md`). The repo stays private.
+Status: mock $40k desk runs with no model key and no Convex deployment. Live sandbox smoke has been run (see `docs/ops-note.md`). This competitive slice did not call the sandbox. The repo stays private.
+
+## Judges in 90 seconds
+
+No keys. No site login. The public fixture is also at `/fixture` when the app is running, and it never reads a private incident.
+
+```bash
+npm ci && npm run check && npm run demo && npm run demo -- rerun
+```
+
+`npm run evidence` prints the failure matrix, then the same two demos, and writes `artifacts/receipts/northwind-latest.json` plus a CSV of executions. `docs/JUDGE.md` has the measured counts. Provider ids change every process. Request ids do not.
 
 ## Run it
 
 ```bash
 npm install
 cp .env.example .env.local     # AIRWALLEX_MODE=mock. Agents stay on fixtures until the OpenRouter key and both model names are set.
-npm run demo                   # scripted $40k scenario, prints the receipt
-npm run demo -- rerun          # same, run twice; second run has an empty ledger and sends nothing new
+npm run demo                   # scripted $40k scenario, prints the receipt and writes the pack
+npm run demo -- rerun          # same account, second run, empty ledger; sends nothing new
+npm run demo -- deposit       # a USD 18000 deposit after the block shrinks the FX buy from 28000 to 10000
 npm run demo -- stale-quote    # 1-minute quote goes stale, Wringer blocks, planner re-quotes
 npm run demo -- approval       # $25k payout waits 90 min for the tap, then pays once
 npm run demo -- approval-timeout  # same payout, no tap within 4 hours: expires, nothing moves
+npm run matrix                 # deterministic failure matrix, exits 1 on any fail
 npm run check                  # lint + typecheck + tests + build-and-scan for leaked keys
-AIRWALLEX_MODE=live npm run live-smoke   # sandbox host only: login, balances, FX quote, conversion, and a transfer that ends CANCELLED. Refuses any other AIRWALLEX_BASE_URL. Not part of check. See docs/ops-note.md.
-npm run dev                    # desk UI for the $40k incident. Open the printed localhost URL.
+AIRWALLEX_MODE=live npm run live-smoke   # sandbox host only. Not part of check. See docs/ops-note.md.
+npm run dev                    # desk. /fixture is the public mock. The ops desk stays locked when DESK_APPROVE_SECRET is set.
 ```
 
 ## Env vars
@@ -66,7 +78,13 @@ Never give a secret a `NEXT_PUBLIC_` prefix. `tests/key-leak.test.ts` and `scrip
 
 ## Desk
 
-`npm run dev` serves the mock incident. Run the planner, read the Wringer blocks, approve once, then replay on an empty ledger. The receipt text matches `npm run demo`. The desk does not call the live Airwallex host. The pay control is disabled while the Wringer key is open.
+`npm run dev` serves the mock incident. `/fixture` is the public judge page: MOCK FIXTURE, read only, no desk key, no Convex read. Beats are `incident`, `planned`, `failed`, `paid`, and `replay`. `GET /fixture/receipt` returns the redacted JSON pack. `GET /fixture/receipt?format=csv` returns the execution rows.
+
+The ops desk at `/` is the same story with the tap. When `DESK_APPROVE_SECRET` is unset and Convex is unset, anyone can run the local mock. When the key is set, plan, approve, replay, and the Convex incident need the cookie. A wrong key or a missing cookie stays on the fixture incident. The pay control stays off while the Wringer key is open.
+
+The spine on the sheet is the receipt: request, cash, plan, Wringer, approval, execution, balances, replay. Each station links to that evidence. A failed send does not get a paid receipt. A tap is refused if the cash evidence changed after the plan was filed. If the shared ledger keeps another worker's row, this desk does not claim that provider call was undone.
+
+The desk does not call the live Airwallex host. The live client refuses any host other than `api.sandbox.airwallex.com`. `lib/airwallex/corridor.ts` describes the sandbox steps and does not send. Missing credential names come back from that status check. No id is invented.
 
 The UI follows `docs/frontend-design-SKILL.md`. The two-key rail is the control: the planner key seats when a plan is filed, the Wringer key seats only when the latest round has no block, and the tap stays disabled until both are seated.
 
