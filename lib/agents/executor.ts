@@ -6,6 +6,8 @@ import { toMajorString } from "../money";
 import type { Finding } from "./wringer";
 import { FX_MIN_HEADROOM_MS } from "./wringer";
 import { parseAwxTime } from "../webhooks/inbox";
+import { randomUUID } from "node:crypto";
+import { finishRequest, takeRequestSlot } from "../ledger/remote";
 
 /** Both keys: planner proposed it, Wringer raised no blocking objection. Then the human gate. */
 export function decide(ledger: MemoryLedger, proposal: Proposal, findings: Finding[], thresholdUsd: number, now: number): Decision {
@@ -50,6 +52,7 @@ export async function execute(ledger: MemoryLedger, awx: AirwallexClient, decisi
   if (decision.needsHuman && !decision.humanApprovedBy) throw new Error("Needs human approval.");
   const order: Action["kind"][] = ["defer_payout", "fx_conversion", "retry_transfer"]; // fund before paying
   const actions = [...proposal.actions].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
+  const owner = randomUUID();
   const out = [];
   for (const a of actions) {
     const requestId = a.kind === "defer_payout" ? `defer:${a.payoutId}` : a.requestId;
@@ -61,8 +64,17 @@ export async function execute(ledger: MemoryLedger, awx: AirwallexClient, decisi
     let response: unknown;
     let airwallexId: string | undefined;
     let result: "ok" | "already_done" | "error" = "ok";
+    let busy = false;
     try {
-      if (a.kind === "defer_payout") {
+      const slot = await takeRequestSlot({ decisionId: decision.id, requestId, actionKind: a.kind, owner });
+      if (slot === "busy") {
+        busy = true;
+        throw new Error("Another worker holds the claim on this request_id. Wait for it to finish or for its lease to expire.");
+      }
+      if (slot === "taken") {
+        result = "already_done";
+        response = { ledger: "request_id already claimed" };
+      } else if (a.kind === "defer_payout") {
         deferredPayouts.add(a.payoutId);
         response = { deferred: a.payoutId, until: a.until };
       } else if (a.kind === "fx_conversion") {
@@ -108,8 +120,20 @@ export async function execute(ledger: MemoryLedger, awx: AirwallexClient, decisi
     }
     const ex = { id: ledger.id("exe"), decisionId: decision.id, requestId, actionKind: a.kind, result, airwallexId, response, createdAt: now };
     ledger.executions.push(ex);
+    try {
+      if (!busy) {
+        const recorded = await finishRequest({ ...ex, owner });
+        if (recorded === "rejected") {
+          ex.result = "error";
+          ex.airwallexId = undefined;
+          ex.response = { message: "The shared ledger kept another worker's outcome for this request_id." };
+        }
+      }
+    } catch {
+      /* The local row and the Airwallex lookup still block a second send. */
+    }
     out.push(ex);
-    if (result === "error") break; // never pay after a failed funding step
+    if (ex.result === "error") break; // never pay after a failed funding step
   }
   return out;
 }

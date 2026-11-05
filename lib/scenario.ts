@@ -9,9 +9,9 @@ import { approve, decide, execute } from "./agents/executor";
 import { round } from "./money";
 
 /** Scripted demo: $40k supplier transfer failed, duplicate + out-of-order webhooks, EUR shortfall, deferred payout, one tap. */
-export async function runDemo(awx: AirwallexClient, opts: { approver?: string; now?: number; thresholdUsd?: number } = {}) {
+export async function runDemo(awx: AirwallexClient, opts: { approver?: string; now?: number; thresholdUsd?: number; ledger?: MemoryLedger } = {}) {
   const now = opts.now ?? fx.T0;
-  const ledger = new MemoryLedger();
+  const ledger = opts.ledger ?? new MemoryLedger();
   const inbox = new WebhookInbox();
   const deferred = new Set<string>();
   for (const e of fx.demoWebhookDeliveries) inbox.ingest(e);

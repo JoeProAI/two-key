@@ -109,4 +109,30 @@ If a currency is under the 40 major-unit floor and `ensureCurrency` returns `blo
 
 Final line: `result pass quote=true conversion=true transfer=true`.
 
-`npm run check` in mock mode: lint, typecheck, 56 tests, leak-scan clean. The log from this rerun does not contain the client id, the API key, or a bearer token.
+`npm run check` in mock mode: lint, typecheck, tests, leak-scan clean. The log from this rerun does not contain the client id, the API key, or a bearer token.
+
+## Demo desk setup
+
+The desk at `npm run dev` runs the mock $40k incident. It does not read the Airwallex client id or API key. It does not call a live Airwallex host.
+
+Presence on the VM that wrote this note, names only:
+
+| Name | Set |
+|---|---|
+| `OPENROUTER_API_KEY` | no |
+| `OPENROUTER_MODEL_PLANNER` | no |
+| `OPENROUTER_MODEL_WRINGER` | no |
+| `AIRWALLEX_WEBHOOK_SECRET` | no |
+| `CONVEX_URL` | no |
+| `NEXT_PUBLIC_CONVEX_URL` | no |
+| `TWO_KEY_INGEST_SECRET` | no |
+
+With those unset, planner and Wringer use fixture responses, and the ledger stays in the Next process (`MemoryLedger`). `npm run demo` and `npm run check` do not need any of them.
+
+To turn a piece on later, set the name as a Runtime Secret or in the server env. Do not commit the value.
+
+- Live model: set `OPENROUTER_API_KEY`, `OPENROUTER_MODEL_PLANNER`, and `OPENROUTER_MODEL_WRINGER`. Leave `AGENT_MODE` unset. `AGENT_MODE=stub` keeps fixtures even if the key is present. The filed moves and the hard Wringer checks stay in code either way.
+- Webhook ingest: set `AIRWALLEX_WEBHOOK_SECRET` on the route, and set `CONVEX_URL` plus `TWO_KEY_INGEST_SECRET` (same secret in the Convex deployment env) to store events in Convex. Missing either Convex value keeps the in-memory webhook store.
+- Ledger claim and receipt sync: the same `CONVEX_URL` and `TWO_KEY_INGEST_SECRET` pair. `npx convex dev` must be run so the deployment matches `convex/schema.ts`. Until then the desk uses `MemoryLedger`, which is enough for `npm run check` and for one local `npm run dev` process. Every public function in `convex/ledger.ts`, including the webhook `timeline` read, checks that secret before touching the database. There is no anonymous Convex read of incidents or webhook payloads. The fixture desk stays available when Convex is unset.
+
+Sandbox calls stay on `AIRWALLEX_MODE=live npm run live-smoke`, which refuses any base URL other than `https://api.sandbox.airwallex.com`.

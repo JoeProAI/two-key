@@ -13,7 +13,7 @@ describe("Airwallex keys stay on the server", () => {
     expect(readers).toEqual(["lib/airwallex/live.ts"]);
   });
   it("secret-touching modules import server-only", () => {
-    for (const f of ["lib/airwallex/live.ts", "lib/airwallex/index.ts", "lib/agents/openrouter.ts"]) {
+    for (const f of ["lib/airwallex/live.ts", "lib/airwallex/index.ts", "lib/agents/openrouter.ts", "lib/desk/gate.ts", "lib/desk/access.ts"]) {
       expect(readFileSync(f, "utf8")).toMatch(/^import "server-only";/);
     }
   });
@@ -24,7 +24,11 @@ describe("Airwallex keys stay on the server", () => {
     }
   });
   it("no NEXT_PUBLIC_ secret names anywhere", () => {
-    for (const f of src) expect(readFileSync(f, "utf8")).not.toMatch(/NEXT_PUBLIC_(AIRWALLEX|OPENROUTER|TWO_KEY)/);
+    for (const f of src) expect(readFileSync(f, "utf8")).not.toMatch(/NEXT_PUBLIC_(AIRWALLEX|OPENROUTER|TWO_KEY|DESK)/);
+  });
+  it("only lib/desk/gate.ts reads the desk key", () => {
+    const readers = src.filter((f) => /DESK_APPROVE_SECRET/.test(readFileSync(f, "utf8")));
+    expect(readers).toEqual(["lib/desk/gate.ts"]);
   });
   it("errors and requests never echo the key", async () => {
     const seen: string[] = [];

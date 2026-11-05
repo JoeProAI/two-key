@@ -3,6 +3,8 @@ import { createMockClient } from "@/lib/airwallex/mock";
 import { runDemo } from "@/lib/scenario";
 import { wring } from "@/lib/agents/wringer";
 import { stubPlan } from "@/lib/agents/planner";
+import { approve, decide, execute } from "@/lib/agents/executor";
+import { MemoryLedger } from "@/lib/ledger/memory";
 import * as fx from "@/lib/airwallex/fixtures";
 import type { Situation } from "@/lib/agents/situation";
 
@@ -93,5 +95,24 @@ describe("Wringer checks", () => {
   it("passes a clean single retry", () => {
     const s = base();
     expect(wring(s, retry(s)).filter((f) => f.severity === "block")).toEqual([]);
+  });
+
+  it("a human tap cannot override a block, and a forced approved status still does not pay", async () => {
+    const awx = createMockClient();
+    const ledger = new MemoryLedger();
+    const s = base();
+    s.webhook.failedDeliveries = 2;
+    const actions = stubPlan(s, 1, []).actions;
+    const proposal = { id: "p", intentId: s.intentId, round: 1, author: "planner" as const, summary: "two retries", actions, createdAt: fx.T0 };
+    const findings = wring(s, actions);
+    expect(findings.some((f) => f.check === "double_payment" && f.severity === "block")).toBe(true);
+    const decision = decide(ledger, proposal, findings, s.approvalThresholdUsd, fx.T0);
+    expect(decision.wringerAgrees).toBe(false);
+    expect(() => approve(ledger, decision.id, "joe", fx.T0)).toThrow(/Wringer blocked/);
+    await expect(execute(ledger, awx, decision, proposal, fx.T0, new Set())).rejects.toThrow(/refuses/);
+    decision.status = "approved";
+    await expect(execute(ledger, awx, decision, proposal, fx.T0, new Set())).rejects.toThrow(/refuses/);
+    expect(awx.calls.createTransfer).toBe(0);
+    expect(awx.calls.createConversion).toBe(0);
   });
 });

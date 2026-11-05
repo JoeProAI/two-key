@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { signWebhook, verifyWebhook } from "@/lib/webhooks/verify";
 import { WebhookInbox } from "@/lib/webhooks/inbox";
 import { demoWebhookDeliveries, ORIGINAL_TRANSFER_ID } from "@/lib/airwallex/fixtures";
+import * as webhookRoute from "@/app/api/webhooks/airwallex/route";
 import { POST } from "@/app/api/webhooks/airwallex/route";
 import { MemoryWebhookStore, setWebhookStore } from "@/lib/webhooks/store";
 
@@ -35,6 +36,11 @@ describe("dedupe and ordering", () => {
 });
 
 describe("webhook route", () => {
+  it("does not export a reader", () => {
+    expect(Object.keys(webhookRoute)).not.toContain("GET");
+    expect(webhookRoute).not.toHaveProperty("GET");
+  });
+
   it("verifies, then flags duplicates", async () => {
     process.env.AIRWALLEX_WEBHOOK_SECRET = secret;
     setWebhookStore(new MemoryWebhookStore());

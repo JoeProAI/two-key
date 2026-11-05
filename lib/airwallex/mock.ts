@@ -9,7 +9,10 @@ const VALIDITY_MS: Record<Quote["validity"], number> = {
 
 /** In-memory Airwallex double. Enforces the one rule that matters most: a request_id used before
  *  is rejected as a duplicate payout, like POST /api/v1/transfers/create does for 7 days. */
-export function createMockClient(opts: { now?: () => number; transfers?: Transfer[]; balances?: Balance[] } = {}): AirwallexClient & {
+/** A quote Airwallex already issued. The real API keeps it server side; a restarted mock is told about it. */
+export type IssuedQuote = Pick<Quote, "quote_id" | "buy_currency" | "sell_currency" | "buy_amount" | "valid_to_at">;
+
+export function createMockClient(opts: { now?: () => number; transfers?: Transfer[]; balances?: Balance[]; quotes?: IssuedQuote[] } = {}): AirwallexClient & {
   calls: { createTransfer: number; createConversion: number; createQuote: number };
   conversions: Map<string, Conversion>;
   balances: Balance[];
@@ -28,6 +31,11 @@ export function createMockClient(opts: { now?: () => number; transfers?: Transfe
     return b;
   };
   const calls = { createTransfer: 0, createConversion: 0, createQuote: 0 };
+  for (const q of opts.quotes ?? []) {
+    quotes.set(q.quote_id, {
+      ...q, sell_amount: round(q.buy_amount / fx.EURUSD, q.sell_currency), client_rate: fx.EURUSD, validity: "MIN_15", valid_from_at: fx.iso(now()),
+    });
+  }
 
   return {
     mode: "mock",

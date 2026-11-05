@@ -2,7 +2,7 @@ import type { Action, Objection } from "../ledger/types";
 import { stableRequestId } from "../requestId";
 import { parseAwxTime } from "../webhooks/inbox";
 import type { Situation } from "./situation";
-import { agentMode, chatJSON } from "./openrouter";
+import { agentMode, chatJSON, type ChatJSON } from "./openrouter";
 
 export type Finding = Pick<Objection, "check" | "severity" | "detail">;
 
@@ -69,11 +69,38 @@ export function wring(s: Situation, actions: Action[]): Finding[] {
 }
 
 export const WRINGER_SYSTEM = `You are the Wringer. Your only job is to break the proposed money moves.
-Look for anything the deterministic checks missed. Reply JSON {"objections":[{"check":string,"severity":"block"|"note","detail":string}]}.`;
+Look for anything the deterministic checks missed. Reply JSON {"objections":[{"check":string,"severity":"block"|"note","detail":string}]}.
+You cannot clear, downgrade, or repeat a check that is already in alreadyFound. Those stand.`;
 
-export async function review(s: Situation, actions: Action[]): Promise<Finding[]> {
+export interface ReviewOptions {
+  env?: NodeJS.ProcessEnv;
+  chat?: ChatJSON;
+}
+
+/** Hard checks are copied through unchanged. An LLM objection whose `check` matches one of them is dropped.
+ *  A failed or empty model call leaves the hard list as it was. */
+export function mergeFindings(hard: Finding[], extra: Finding[] | undefined): Finding[] {
+  const taken = new Set(hard.map((f) => f.check));
+  const added: Finding[] = [];
+  for (const f of extra ?? []) {
+    if (!f || (f.severity !== "block" && f.severity !== "note")) continue;
+    if (typeof f.check !== "string" || !f.check || typeof f.detail !== "string") continue;
+    if (taken.has(f.check)) continue;
+    taken.add(f.check);
+    added.push({ check: f.check, severity: f.severity, detail: f.detail });
+  }
+  return [...hard, ...added];
+}
+
+export async function review(s: Situation, actions: Action[], opts: ReviewOptions = {}): Promise<Finding[]> {
   const hard = wring(s, actions);
-  if (agentMode() === "stub") return hard;
-  const extra = await chatJSON<{ objections: Finding[] }>("wringer", WRINGER_SYSTEM, { situation: s, actions, alreadyFound: hard });
-  return [...hard, ...(extra.objections ?? [])];
+  const env = opts.env ?? process.env;
+  if (agentMode(env) !== "llm") return hard;
+  try {
+    const chat = opts.chat ?? ((role, system, user, callEnv) => chatJSON(role, system, user, callEnv));
+    const extra = (await chat("wringer", WRINGER_SYSTEM, { situation: s, actions, alreadyFound: hard }, env)) as { objections?: Finding[] } | undefined;
+    return mergeFindings(hard, extra?.objections);
+  } catch {
+    return hard;
+  }
 }
