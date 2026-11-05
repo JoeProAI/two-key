@@ -1,7 +1,7 @@
 import type { AirwallexClient } from "../airwallex/types";
 import { AirwallexError } from "../airwallex/types";
 import type { MemoryLedger } from "../ledger/memory";
-import type { Action, Decision, Proposal } from "../ledger/types";
+import type { Action, Decision, Execution, Proposal } from "../ledger/types";
 import { toMajorString } from "../money";
 import type { Finding } from "./wringer";
 import { FX_MIN_HEADROOM_MS } from "./wringer";
@@ -9,6 +9,7 @@ import { parseAwxTime } from "../webhooks/inbox";
 import { randomUUID } from "node:crypto";
 import { finishRequest, takeRequestSlot } from "../ledger/remote";
 import { planDigest } from "../receipt/bind";
+import { conversionAgrees, expectedRequestId, priorAgrees, transferAgrees } from "./reconcile";
 
 /** Both keys: planner proposed it, Wringer raised no blocking objection. Then the human gate. */
 export function decide(ledger: MemoryLedger, proposal: Proposal, findings: Finding[], thresholdUsd: number, now: number): Decision {
@@ -61,11 +62,23 @@ export async function execute(ledger: MemoryLedger, awx: AirwallexClient, decisi
   const order: Action["kind"][] = ["defer_payout", "fx_conversion", "retry_transfer"]; // fund before paying
   const actions = [...proposal.actions].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
   const owner = randomUUID();
-  const out = [];
+  const out: Execution[] = [];
   for (const a of actions) {
     const requestId = a.kind === "defer_payout" ? `defer:${a.payoutId}` : a.requestId;
+    if (a.kind !== "defer_payout" && a.requestId !== expectedRequestId(proposal.intentId, a)) {
+      const mismatch = { id: ledger.id("exe"), decisionId: decision.id, requestId, actionKind: a.kind, result: "error" as const, response: { message: "This request_id does not match the action payload. No new send." }, createdAt: now };
+      ledger.executions.push(mismatch);
+      out.push(mismatch);
+      break;
+    }
     const prior = ledger.executionByRequestId(requestId);
     if (prior) {
+      if (!priorAgrees(a, prior.response)) {
+        const clash = { id: ledger.id("exe"), decisionId: decision.id, requestId, actionKind: a.kind, result: "error" as const, response: { message: "This request_id already completed a different payload. That receipt is not this action. No new send." }, createdAt: now };
+        ledger.executions.push(clash);
+        out.push(clash);
+        break;
+      }
       prior.replays = (prior.replays ?? 0) + 1;
       prior.lastReplayAt = now;
       out.push({ ...prior, result: "already_done" as const });
@@ -92,12 +105,20 @@ export async function execute(ledger: MemoryLedger, awx: AirwallexClient, decisi
         // A ledger lost between runs must never turn into a second conversion.
         const existing = await awx.findConversionByRequestId(a.requestId);
         if (existing && existing.status !== "CANCELLED") {
+          if (!conversionAgrees(a, existing)) throw new Error("This request_id already completed a different payload. That receipt is not this action. No new send.");
           result = "already_done";
           response = existing;
           airwallexId = existing.conversion_id;
         } else if (existing) {
           throw new Error(`conversion ${existing.conversion_id} for this request_id was CANCELLED; a human must decide`);
         } else {
+          const retry = proposal.actions.find((x) => x.kind === "retry_transfer");
+          if (retry && retry.kind === "retry_transfer") {
+            const live = await awx.findTransferByRequestId(retry.requestId);
+            if (live && live.status !== "FAILED" && live.status !== "CANCELLED") {
+              throw new Error("The retry transfer for this intent is already on the provider. A new conversion was not sent.");
+            }
+          }
           if (parseAwxTime(a.quoteValidToAt) - now < FX_MIN_HEADROOM_MS) throw new Error("quote went stale before execution");
           const c = await awx.createConversion({ request_id: a.requestId, buy_currency: a.buyCurrency, sell_currency: a.sellCurrency, buy_amount: toMajorString(a.buyAmount, a.buyCurrency), quote_id: a.quoteId });
           response = c;
@@ -109,6 +130,7 @@ export async function execute(ledger: MemoryLedger, awx: AirwallexClient, decisi
         if (orig.status !== "CANCELLED" && orig.status !== "FAILED") throw new Error(`original is ${orig.status}, refusing to retry`);
         const existing = await awx.findTransferByRequestId(a.requestId);
         if (existing) {
+          if (!transferAgrees(a, existing)) throw new Error("This request_id already completed a different payload. That receipt is not this action. No new send.");
           result = "already_done";
           response = existing;
           airwallexId = existing.id;

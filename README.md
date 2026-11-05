@@ -11,10 +11,10 @@ Status: mock $40k desk runs with no model key and no Convex deployment. Live san
 No keys. No site login. The public fixture is also at `/fixture` when the app is running, and it never reads a private incident.
 
 ```bash
-npm ci && npm run check && npm run demo && npm run demo -- rerun
+npm ci && npm run check && npm run evidence
 ```
 
-`npm run evidence` prints the failure matrix, then the same two demos, and writes `artifacts/receipts/northwind-latest.json` plus a CSV of executions. `docs/JUDGE.md` has the measured counts. Provider ids change every process. Request ids do not.
+`npm run evidence` prints the failure matrix, then three separate scenarios: `main`, `replay`, and `deposit`. `replay` pays once and then a fresh process reconciles that same receipt. `main` is a different mock. `docs/JUDGE.md` has the measured counts. Provider ids change every process. Request ids stay, and they include the amount.
 
 ## Run it
 
@@ -22,7 +22,7 @@ npm ci && npm run check && npm run demo && npm run demo -- rerun
 npm install
 cp .env.example .env.local     # AIRWALLEX_MODE=mock. Agents stay on fixtures until the OpenRouter key and both model names are set.
 npm run demo                   # scripted $40k scenario, prints the receipt and writes the pack
-npm run demo -- rerun          # same account, second run, empty ledger; sends nothing new
+npm run demo -- replay         # pay once, then a fresh process reconciles the same actions and the same provider ids
 npm run demo -- deposit       # a USD 18000 deposit after the block shrinks the FX buy from 28000 to 10000
 npm run demo -- stale-quote    # 1-minute quote goes stale, Wringer blocks, planner re-quotes
 npm run demo -- approval       # $25k payout waits 90 min for the tap, then pays once
@@ -68,7 +68,7 @@ Never give a secret a `NEXT_PUBLIC_` prefix. `tests/key-leak.test.ts` and `scrip
 
 ## Safety rules in code
 
-- A `request_id` is `sha256(intent, action)`, so it never depends on the attempt, a webhook or the clock. Airwallex rejects a `request_id` reused within 7 days. Before creating a transfer, the executor also looks it up with `GET /api/v1/transfers?request_id=`. Before creating a conversion, it looks it up with `GET /api/v1/fx/conversions?request_id=` ([list conversions](https://www.airwallex.com/docs/api/transactional_fx/conversion/list.md)). If a match exists the action is `already_done`; if the match is CANCELLED the run stops for a human. The live client also does this lookup when a create call errors.
+- A `request_id` is `sha256` of the intent, the action, and the money fields (for FX: buy amount and both currencies; for a retry: slot, original transfer, amount, currency, and beneficiary). It does not depend on the attempt, a webhook, the quote id, or the clock. A different buy amount is a different id. The same id with a different payload is an error and does not send. Airwallex rejects a `request_id` reused within 7 days. Before creating a transfer, the executor looks it up with `GET /api/v1/transfers?request_id=`. Before creating a conversion, it looks it up with `GET /api/v1/fx/conversions?request_id=` ([list conversions](https://www.airwallex.com/docs/api/transactional_fx/conversion/list.md)). If the match is the same payload and is not CANCELLED, the action is `already_done`. If the match is CANCELLED the run stops for a human. A finished intent is reconciled from the saved actions. It is not replanned from the new balance. The live client also does this lookup when a create call errors.
 - The executor re-reads the original transfer right before paying. It refuses to pay if the transfer isn't CANCELLED or FAILED.
 - The LLM can add objections but can't remove the deterministic Wringer checks. A model objection whose `check` matches a hard check is dropped. A failed model call leaves the hard checks in place. The filed moves, amounts, and `request_id`s always come from code, including when the live path runs. Round 1 stays the fixture plan so the double-pay block still shows.
 - Funding runs before paying (defer, then FX, then transfer). The run stops at the first error.

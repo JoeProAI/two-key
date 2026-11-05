@@ -90,7 +90,7 @@ export function Desk({ view }: { view: DeskView }) {
                 <p className="currency">{view.currency}</p>
                 <p className="amount">{view.amount}</p>
               </div>
-              <p className="stamp">Cancelled</p>
+              <p className="stamp">{view.status}</p>
             </div>
             <p className="failure">{view.failure}</p>
             <dl className="meta">
@@ -230,12 +230,12 @@ export function Desk({ view }: { view: DeskView }) {
             )}
           </section>
 
-          <section id="evidence-balances" data-current={view.focus === "balances" ? "true" : undefined}>
+          <section id="evidence-balances" className="balances" data-current={view.focus === "balances" ? "true" : undefined}>
             <h2>Balances</h2>
             <table>
-              <caption>Fixture balances before this run, and the balances on the sheet now.</caption>
+              <caption>Available is spendable in this mock. Pending and reserved stay 0. Total is available plus those.</caption>
               <thead>
-                <tr><th scope="col">Currency</th><th scope="col">Before</th><th scope="col">Now</th></tr>
+                <tr><th scope="col">Currency</th><th scope="col">Before available</th><th scope="col">Available</th><th scope="col">Pending</th><th scope="col">Reserved</th><th scope="col">Total</th></tr>
               </thead>
               <tbody>
                 {view.balances.map((row) => (
@@ -243,6 +243,9 @@ export function Desk({ view }: { view: DeskView }) {
                     <td>{row.currency}</td>
                     <td>{view.balancesBefore.find((b) => b.currency === row.currency)?.available ?? ""}</td>
                     <td>{row.available}</td>
+                    <td>{row.pending ?? "0.00"}</td>
+                    <td>{row.reserved ?? "0.00"}</td>
+                    <td>{row.total ?? row.available}</td>
                   </tr>
                 ))}
               </tbody>
@@ -259,17 +262,25 @@ export function Desk({ view }: { view: DeskView }) {
             ) : (
               <p className="empty">No receipt yet. A seated pair of keys and one tap write it. A failed send does not get a paid receipt.</p>
             )}
-            {view.transfersCreated !== null ? (
+            {view.transferCalls !== null ? (
               <p className="counts">
-                <span>Transfer calls: {view.transfersCreated}</span>
-                <span>Conversion calls: {view.conversionsCreated}</span>
-                {view.replayed ? <span>Replay on an empty ledger</span> : null}
+                <span>Transfer calls: {view.transferCalls}</span>
+                <span>Transfers settled: {view.transfersSettled ?? 0}</span>
+                <span>Conversion calls: {view.conversionCalls}</span>
+                <span>Conversions settled: {view.conversionsSettled ?? 0}</span>
+              </p>
+            ) : view.transfersSettled !== null ? (
+              <p className="counts">
+                <span>Transfers settled: {view.transfersSettled}</span>
+                <span>Conversions settled: {view.conversionsSettled ?? 0}</span>
+                <span>Call attempts are not stored on this ledger</span>
               </p>
             ) : null}
             {view.executions.some((row) => row.result === "error") ? (
-              <p className="note">An error row did not settle. The call count includes that attempt. The balances above are what remains.</p>
+              <p className="note">An error row did not settle. Calls count the attempt. Settled counts an object this mock stored.</p>
             ) : null}
-            <p className="note">{view.replayed ? "Replay resolved already_done. The provider id did not change." : "Replay uses the same request id and does not create a second transfer."}</p>
+            <p className="note">Available is what this mock will spend. Pending and reserved stay 0, and total equals available plus those. The 10,000 floor is a Two-Key rule, not reserved_amount. Mock ledger math, not a live balance.</p>
+            <p className="note">{view.replayed ? "Reconcile kept the original provider id. It did not replan or pay." : "Reconcile reads the saved actions. It does not file a new plan."}</p>
           </section>
         </article>
 
@@ -311,7 +322,7 @@ export function Desk({ view }: { view: DeskView }) {
           ) : view.canReplay ? (
             <form className="replay" action={replayDesk}>
               <input type="hidden" name="approver" value="joe" />
-              <Submit idle="Replay on an empty ledger" pending="Replaying" />
+              <Submit idle="Reconcile this receipt" pending="Reconciling" />
             </form>
           ) : (
             <form className="tap" action={approveDesk}>

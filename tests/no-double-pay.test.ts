@@ -4,6 +4,7 @@ import { runDemo } from "@/lib/scenario";
 import { wring } from "@/lib/agents/wringer";
 import { stubPlan } from "@/lib/agents/planner";
 import { approve, decide, execute } from "@/lib/agents/executor";
+import { reconcileSettled } from "@/lib/agents/reconcile";
 import { MemoryLedger } from "@/lib/ledger/memory";
 import * as fx from "@/lib/airwallex/fixtures";
 import type { Situation } from "@/lib/agents/situation";
@@ -24,7 +25,18 @@ describe("demo scenario (mock, end to end)", () => {
     expect(awx.calls.createTransfer).toBe(1);
     expect(awx.calls.createConversion).toBe(1);
     expect(res.executions.map((e) => [e.actionKind, e.result])).toEqual([["defer_payout", "ok"], ["fx_conversion", "ok"], ["retry_transfer", "ok"]]);
-    expect(awx.balances.find((b) => b.currency === "USD")!.available_amount).toBe(10000); // reserve intact
+    const usd = awx.balances.find((b) => b.currency === "USD")!;
+    const eur = awx.balances.find((b) => b.currency === "EUR")!;
+    expect(usd.available_amount).toBe(10000);
+    expect(usd.pending_amount).toBe(0);
+    expect(usd.reserved_amount).toBe(0);
+    expect(usd.total_amount).toBe(10000);
+    const sold = [...awx.conversions.values()][0].sell_amount;
+    expect(eur.available_amount).toBe(60000 - sold);
+    expect(eur.pending_amount).toBe(0);
+    expect(eur.reserved_amount).toBe(0);
+    expect(eur.total_amount).toBe(eur.available_amount);
+    expect(eur.available_amount).toBe(34074.07);
     expect(res.receipt!.lines.join("\n")).toMatch(/approved by joe/);
   });
 
@@ -57,13 +69,18 @@ describe("demo scenario (mock, end to end)", () => {
     expect(awx.calls.createTransfer + awx.calls.createConversion).toBe(0);
   });
 
-  it("a lost ledger still cannot pay twice: Airwallex lookup by request_id catches it", async () => {
+  it("a lost ledger still cannot pay twice: a new plan is refused and reconcile keeps the one transfer", async () => {
     const awx = createMockClient();
-    await runDemo(awx, { approver: "joe" });
-    const second = await runDemo(awx, { approver: "joe" }); // fresh ledger, same intent
-    const retry = second.executions.find((e) => e.actionKind === "retry_transfer");
+    const first = await runDemo(awx, { approver: "joe" });
+    const second = await runDemo(awx, { approver: "joe" });
+    expect(second.refusedReplan).toMatch(/did not replan or pay/);
+    expect(awx.calls.createQuote).toBe(1);
+    const ledger = new MemoryLedger();
+    const reconciled = await reconcileSettled(awx, "intent_inv2291", first.rounds.at(-1)!.proposal.actions, ledger, "dec_lost", fx.T0);
+    const retry = reconciled.find((e) => e.actionKind === "retry_transfer");
     expect(retry?.result).toBe("already_done");
-    expect(second.executions.some((e) => e.result === "error")).toBe(false);
+    expect(retry?.airwallexId).toBe(first.executions.find((e) => e.actionKind === "retry_transfer")?.airwallexId);
+    expect(awx.calls.createTransfer).toBe(1);
     expect([...awx.transfers.values()].filter((t) => t.reference === fx.originalTransfer.reference && t.id !== fx.ORIGINAL_TRANSFER_ID)).toHaveLength(1);
   });
 });

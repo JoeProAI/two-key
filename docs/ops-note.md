@@ -111,6 +111,8 @@ Final line: `result pass quote=true conversion=true transfer=true`.
 
 `npm run check` in mock mode: lint, typecheck, tests, leak-scan clean. The log from this rerun does not contain the client id, the API key, or a bearer token.
 
+The 2026-11-05 receipt follow-up did not call the sandbox and did not change `scripts/live-smoke.ts`. The sandbox request ids in the tables above are historical. The mock desk now folds the buy amount into the FX request id and the transfer amount into the retry request id. A future sandbox run would be a new smoke, not a reuse of this note.
+
 ## Demo desk setup
 
 The desk at `npm run dev` runs the mock $40k incident. It does not read the Airwallex client id or API key. It does not call a live Airwallex host.

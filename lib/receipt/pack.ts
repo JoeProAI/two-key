@@ -39,7 +39,12 @@ export interface ReceiptPack {
   }[];
   executions: PackExecution[];
   resulting: {
-    balancesAfter: { currency: string; available: number }[];
+    balancesAfter: { currency: string; available: number; pending: number; reserved: number; total: number }[];
+    transferCalls: number;
+    transfersSettled: number;
+    conversionCalls: number;
+    conversionsSettled: number;
+    /** Attempt counts. Prefer transferCalls and conversionCalls. */
     transfersCreated: number;
     conversionsCreated: number;
   };
@@ -55,12 +60,14 @@ export interface PackInput {
   gitSha: string;
   runId: string;
   balancesBefore: { currency: string; available: number }[];
-  balancesAfter: { currency: string; available: number }[];
+  balancesAfter: { currency: string; available: number; pending?: number; reserved?: number; total?: number }[];
   reserve: { currency: string; amount: number };
   queued: { id: string; amount: number; currency: string; label: string }[];
   webhooks: { id: string; name: string; createdAt: string; status: string }[];
-  transfersCreated: number;
-  conversionsCreated: number;
+  transferCalls: number;
+  transfersSettled: number;
+  conversionCalls: number;
+  conversionsSettled: number;
 }
 
 function providerCall(ex: Execution): PackExecution["providerCall"] {
@@ -141,13 +148,23 @@ export function buildPack(input: PackInput): ReceiptPack {
     }),
     executions,
     resulting: {
-      balancesAfter: input.balancesAfter,
-      transfersCreated: input.transfersCreated,
-      conversionsCreated: input.conversionsCreated,
+      balancesAfter: input.balancesAfter.map((b) => ({
+        currency: b.currency,
+        available: b.available,
+        pending: b.pending ?? 0,
+        reserved: b.reserved ?? 0,
+        total: b.total ?? b.available + (b.pending ?? 0) + (b.reserved ?? 0),
+      })),
+      transferCalls: input.transferCalls,
+      transfersSettled: input.transfersSettled,
+      conversionCalls: input.conversionCalls,
+      conversionsSettled: input.conversionsSettled,
+      transfersCreated: input.transferCalls,
+      conversionsCreated: input.conversionCalls,
     },
     lines,
     note: input.mode === "MOCK"
-      ? "MOCK FIXTURE. No live money moved. Amounts come from the fixture client."
+      ? "MOCK FIXTURE. No live money moved. transferCalls and conversionCalls count attempts. transfersSettled and conversionsSettled count objects this mock stored. In this mock an accepted create settles the wallet immediately, pending and reserved stay 0, and total equals available plus those. The 10000 USD floor is a Two-Key rule, not reserved_amount. This is not a live Airwallex balance claim."
       : "SANDBOX. Demo money only. Not a production payment.",
   };
   return redact(pack);

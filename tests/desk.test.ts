@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { stableRequestId } from "@/lib/requestId";
+import { canonicalRetryId } from "@/lib/requestId";
+import * as fx from "@/lib/airwallex/fixtures";
 import { approveSession, cleanApprover, getDeskView, openPlan, replaySession, resetDeskForTests } from "@/lib/desk/session";
 import { resetLedgerRemoteForTests } from "@/lib/ledger/remote";
 import { AirwallexError } from "@/lib/airwallex/types";
@@ -8,7 +9,7 @@ import type { createMockClient } from "@/lib/airwallex/mock";
 type DeskStore = { __twoKeyDesk?: { session: { awx: ReturnType<typeof createMockClient> } | null } };
 const deskAwx = () => (globalThis as DeskStore).__twoKeyDesk!.session!.awx;
 
-const RETRY = stableRequestId("intent_inv2291", "retry_transfer", "0");
+const RETRY = canonicalRetryId("intent_inv2291", fx.originalTransfer);
 
 function failNextConversion(awx: ReturnType<typeof createMockClient>) {
   const orig = awx.createConversion.bind(awx);
@@ -58,6 +59,11 @@ describe("demo desk", () => {
     expect(paid.canReplay).toBe(true);
     expect(paid.transfersCreated).toBe(1);
     expect(paid.conversionsCreated).toBe(1);
+    expect(paid.transferCalls).toBe(1);
+    expect(paid.transfersSettled).toBe(1);
+    expect(paid.conversionCalls).toBe(1);
+    expect(paid.conversionsSettled).toBe(1);
+    expect(paid.balances.find((b) => b.currency === "USD")).toMatchObject({ available: "10,000.00", pending: "0.00", reserved: "0.00", total: "10,000.00" });
     expect(paid.balances.find((b) => b.currency === "USD")?.available).toBe("10,000.00");
     expect(paid.receipt?.join("\n")).toMatch(/approved by joe/);
     expect(paid.receipt?.join("\n")).toContain(RETRY);
@@ -73,6 +79,11 @@ describe("demo desk", () => {
     expect(replayed.conversionsCreated).toBe(1);
     expect(replayed.receipt?.join("\n")).toMatch(/retry_transfer request_id=.*already_done/);
     expect(replayed.receipt?.join("\n")).toContain(RETRY);
+    const okTransfer = replayed.executions.find((e) => e.action === "retry_transfer" && e.result === "ok");
+    const againTransfer = replayed.executions.find((e) => e.action === "retry_transfer" && e.result === "already_done");
+    expect(againTransfer?.providerId).toBe(okTransfer?.providerId);
+    expect(replayed.transferCalls).toBe(1);
+    expect(replayed.conversionCalls).toBe(1);
   });
 
   it("keeps a failed send recoverable instead of marking it paid", async () => {
@@ -84,6 +95,10 @@ describe("demo desk", () => {
     expect(failed.receipt).toBeNull();
     expect(failed.transfersCreated).toBe(0);
     expect(failed.conversionsCreated).toBe(1);
+    expect(failed.transferCalls).toBe(0);
+    expect(failed.transfersSettled).toBe(0);
+    expect(failed.conversionCalls).toBe(1);
+    expect(failed.conversionsSettled).toBe(0);
     expect(failed.error).toMatch(/FX conversion failed: insufficient funds/);
     expect(failed.error).not.toContain("\u2014");
     expect(failed.keyReason).toMatch(/Nothing is marked paid/);

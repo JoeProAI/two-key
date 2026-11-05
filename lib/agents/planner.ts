@@ -1,5 +1,5 @@
 import type { Action } from "../ledger/types";
-import { stableRequestId } from "../requestId";
+import { fxRequestId, retryRequestId } from "../requestId";
 import { round } from "../money";
 import type { Situation } from "./situation";
 import { agentMode, chatJSON, type ChatJSON } from "./openrouter";
@@ -21,7 +21,8 @@ export function stubPlan(s: Situation, round_: number, objections: string[]): Pl
   const o = s.original;
   const retry = (slot: string): Action => ({
     kind: "retry_transfer", originalTransferId: o.id, amount: o.transfer_amount, currency: o.transfer_currency,
-    beneficiaryId: o.beneficiary_id ?? "", reference: o.reference ?? "", requestId: stableRequestId(s.intentId, "retry_transfer", slot),
+    beneficiaryId: o.beneficiary_id ?? "", reference: o.reference ?? "",
+    requestId: retryRequestId(s.intentId, slot, { originalTransferId: o.id, amount: o.transfer_amount, currency: o.transfer_currency, beneficiaryId: o.beneficiary_id ?? "" }),
   });
   if (round_ === 1 || objections.length === 0) {
     // Naive: one retry per failed webhook delivery received.
@@ -41,7 +42,7 @@ export function stubPlan(s: Situation, round_: number, objections: string[]): Pl
   if (need > 0 && s.quote) {
     actions.unshift({
       kind: "fx_conversion", buyCurrency: s.quote.buy_currency, sellCurrency: s.quote.sell_currency, buyAmount: s.quote.buy_amount,
-      quoteId: s.quote.quote_id, quoteValidToAt: s.quote.valid_to_at, requestId: stableRequestId(s.intentId, "fx_conversion"),
+      quoteId: s.quote.quote_id, quoteValidToAt: s.quote.valid_to_at, requestId: fxRequestId(s.intentId, s.quote.buy_amount, s.quote.buy_currency, s.quote.sell_currency),
     });
   }
   return {

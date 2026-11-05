@@ -22,6 +22,9 @@ export interface DeskRound {
 export interface DeskMoney {
   currency: string;
   available: string;
+  pending?: string;
+  reserved?: string;
+  total?: string;
 }
 
 export interface DeskStation {
@@ -74,6 +77,10 @@ export interface DeskView {
   receipt: string[] | null;
   transfersCreated: number | null;
   conversionsCreated: number | null;
+  transferCalls: number | null;
+  transfersSettled: number | null;
+  conversionCalls: number | null;
+  conversionsSettled: number | null;
   ledgerLabel: string;
   modelLabel: string;
   error: string | null;

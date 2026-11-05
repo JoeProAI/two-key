@@ -1,5 +1,5 @@
 import type { Action, Objection } from "../ledger/types";
-import { stableRequestId } from "../requestId";
+import { canonicalRetryId } from "../requestId";
 import { parseAwxTime } from "../webhooks/inbox";
 import type { Situation } from "./situation";
 import { agentMode, chatJSON, type ChatJSON } from "./openrouter";
@@ -23,7 +23,7 @@ export function wring(s: Situation, actions: Action[]): Finding[] {
 
   // 2. Every retry must use the stable request_id for this intent so a replay is rejected by Airwallex.
   for (const r of retries) {
-    if (r.requestId !== stableRequestId(s.intentId, "retry_transfer", "0")) {
+    if (r.requestId !== canonicalRetryId(s.intentId, s.original)) {
       f.push({ check: "unstable_request_id", severity: "block", detail: `Retry uses request_id ${r.requestId}, not the intent's stable id.` });
     }
   }

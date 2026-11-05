@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { round } from "../money";
+import { applyAvailable, round } from "../money";
 import { AWX_ERR, AirwallexError, type AirwallexClient, type Balance, type Conversion, type Quote, type Transfer } from "./types";
 import * as fx from "./fixtures";
 
@@ -7,14 +7,24 @@ const VALIDITY_MS: Record<Quote["validity"], number> = {
   MIN_1: 60_000, MIN_15: 900_000, MIN_30: 1_800_000, HR_1: 3_600_000, HR_4: 14_400_000, HR_8: 28_800_000, HR_24: 86_400_000,
 };
 
-/** In-memory Airwallex double. Enforces the one rule that matters most: a request_id used before
- *  is rejected as a duplicate payout, like POST /api/v1/transfers/create does for 7 days. */
+/** In-memory Airwallex double. A request_id used before is rejected as a duplicate, the way
+ *  POST /api/v1/transfers/create does for 7 days.
+ *
+ *  Mock balance semantics, not a live Airwallex claim. An accepted create settles the wallet
+ *  immediately: available moves by the amount, and pending_amount and reserved_amount stay 0.
+ *  total_amount is always available + pending + reserved. Two-Key's 10000 USD floor is a Wringer
+ *  rule. It is not written into reserved_amount. A seeded conversion or transfer is already on
+ *  the ledger; seeding it does not apply the balance delta again. */
 /** A quote Airwallex already issued. The real API keeps it server side; a restarted mock is told about it. */
 export type IssuedQuote = Pick<Quote, "quote_id" | "buy_currency" | "sell_currency" | "buy_amount" | "valid_to_at">;
 
-export function createMockClient(opts: { now?: () => number; transfers?: Transfer[]; balances?: Balance[]; quotes?: IssuedQuote[] } = {}): AirwallexClient & {
+export type MockSnapshot = { balances: Balance[]; transfers: Transfer[]; conversions: Conversion[]; quotes: Quote[] };
+
+export function createMockClient(opts: { now?: () => number; transfers?: Transfer[]; balances?: Balance[]; quotes?: Array<IssuedQuote | Quote>; conversions?: Conversion[] } = {}): AirwallexClient & {
   calls: { createTransfer: number; createConversion: number; createQuote: number };
+  settled: { transfers: number; conversions: number };
   conversions: Map<string, Conversion>;
+  quotes: Map<string, Quote>;
   balances: Balance[];
   transfers: Map<string, Transfer>;
 } {
@@ -24,22 +34,36 @@ export function createMockClient(opts: { now?: () => number; transfers?: Transfe
   const usedRequestIds = new Set<string>(seed.map((t) => t.request_id));
   const quotes = new Map<string, Quote>();
   const conversions = new Map<string, Conversion>();
-  const balances: Balance[] = (opts.balances ?? fx.balances).map((b) => ({ ...b }));
+  const balances: Balance[] = (opts.balances ?? fx.balances).map((b) => ({ ...b, pending_amount: b.pending_amount ?? 0, reserved_amount: b.reserved_amount ?? 0 }));
+  for (const b of balances) b.total_amount = round(b.available_amount + (b.pending_amount ?? 0) + (b.reserved_amount ?? 0), b.currency);
   const bal = (c: string) => {
     let b = balances.find((x) => x.currency === c);
-    if (!b) balances.push((b = { currency: c, available_amount: 0 }));
+    if (!b) {
+      balances.push((b = { currency: c, available_amount: 0, pending_amount: 0, reserved_amount: 0, total_amount: 0 }));
+    }
     return b;
   };
   const calls = { createTransfer: 0, createConversion: 0, createQuote: 0 };
   for (const q of opts.quotes ?? []) {
-    quotes.set(q.quote_id, {
+    if ("sell_amount" in q && q.client_rate) quotes.set(q.quote_id, { ...q });
+    else quotes.set(q.quote_id, {
       ...q, sell_amount: round(q.buy_amount / fx.EURUSD, q.sell_currency), client_rate: fx.EURUSD, validity: "MIN_15", valid_from_at: fx.iso(now()),
     });
   }
+  for (const c of opts.conversions ?? []) {
+    conversions.set(c.request_id, { ...c });
+    usedRequestIds.add(c.request_id);
+  }
+  const settled = {
+    transfers: [...transfers.values()].filter((t) => t.status !== "CANCELLED" && t.status !== "FAILED").length,
+    conversions: conversions.size,
+  };
 
   return {
     mode: "mock",
     calls,
+    settled,
+    quotes,
     balances,
     transfers,
     conversions,
@@ -59,13 +83,14 @@ export function createMockClient(opts: { now?: () => number; transfers?: Transfe
       const src = bal(body.source_currency ?? body.transfer_currency);
       if (src.available_amount < amount) throw new AirwallexError("insufficient funds", 400, AWX_ERR.balanceInsufficient);
       usedRequestIds.add(body.request_id);
-      src.available_amount = round(src.available_amount - amount, src.currency);
+      applyAvailable(src, -amount);
       const t: Transfer = {
         id: randomUUID(), request_id: body.request_id, status: "PROCESSING", transfer_amount: amount,
         transfer_currency: body.transfer_currency, source_currency: body.source_currency, beneficiary_id: body.beneficiary_id,
         reference: body.reference, created_at: fx.iso(now()),
       };
       transfers.set(t.id, t);
+      settled.transfers += 1;
       return { ...t };
     },
     async getBalances() {
@@ -95,14 +120,15 @@ export function createMockClient(opts: { now?: () => number; transfers?: Transfe
       const sell = q ? q.sell_amount : round(buy / fx.EURUSD, "EUR");
       const eur = bal(body.sell_currency);
       if (eur.available_amount < sell) throw new AirwallexError("insufficient funds", 400, AWX_ERR.balanceInsufficient);
-      eur.available_amount = round(eur.available_amount - sell, eur.currency);
+      applyAvailable(eur, -sell);
       const usd = bal(body.buy_currency);
-      usd.available_amount = round(usd.available_amount + buy, usd.currency);
+      applyAvailable(usd, buy);
       const c: Conversion = {
         conversion_id: randomUUID(), request_id: body.request_id, buy_currency: body.buy_currency, sell_currency: body.sell_currency,
         buy_amount: buy, sell_amount: sell, quote_id: body.quote_id, status: "SETTLED", created_at: fx.iso(now()),
       };
       conversions.set(body.request_id, c);
+      settled.conversions += 1;
       return { ...c };
     },
     async getConversion(conversionId) {
@@ -119,5 +145,15 @@ export function createMockClient(opts: { now?: () => number; transfers?: Transfe
       t.status = nextStatus;
       return { ...t };
     },
+  };
+}
+
+/** Copy the objects a fresh process needs in order to look the same request ids up. Balances are copied as stored. */
+export function snapshotMock(awx: { balances: Balance[]; transfers: Map<string, Transfer>; conversions: Map<string, Conversion>; quotes: Map<string, Quote> }): MockSnapshot {
+  return {
+    balances: awx.balances.map((b) => ({ ...b })),
+    transfers: [...awx.transfers.values()].map((t) => ({ ...t })),
+    conversions: [...awx.conversions.values()].map((c) => ({ ...c })),
+    quotes: [...awx.quotes.values()].map((q) => ({ ...q })),
   };
 }

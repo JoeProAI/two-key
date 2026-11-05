@@ -5,7 +5,8 @@ import { CLAIM_LEASE_MS, finishDecision } from "@/lib/ledger/claim";
 import { createMockClient } from "@/lib/airwallex/mock";
 import { resetLedgerRemoteForTests, setLedgerApiForTests, setLedgerBackendForTests } from "@/lib/ledger/remote";
 import { runDemo } from "@/lib/scenario";
-import { stableRequestId } from "@/lib/requestId";
+import * as fx from "@/lib/airwallex/fixtures";
+import { canonicalRetryId, fxRequestId } from "@/lib/requestId";
 import { approveSession, openPlan, replaySession, resetDeskForTests } from "@/lib/desk/session";
 
 type Row = Record<string, unknown> & { _id: string };
@@ -212,8 +213,8 @@ describe("replay keeps the original successful execution", () => {
     });
     await openPlan(OPEN);
     await approveSession("joe", OPEN);
-    const retry = stableRequestId("intent_inv2291", "retry_transfer", "0");
-    const conversion = stableRequestId("intent_inv2291", "fx_conversion");
+    const retry = canonicalRetryId("intent_inv2291", fx.originalTransfer);
+    const conversion = fxRequestId("intent_inv2291", 28000, "USD", "EUR");
     const before = rows.filter((r) => r.result === "ok").map((r) => [r.requestId, r.airwallexId]);
     expect(before.map(([id]) => id)).toEqual(expect.arrayContaining([retry, conversion]));
     await replaySession("joe", OPEN);

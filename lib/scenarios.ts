@@ -1,6 +1,8 @@
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import type { AirwallexClient, Transfer, WebhookEvent } from "./airwallex/types";
 import * as fx from "./airwallex/fixtures";
-import { createMockClient } from "./airwallex/mock";
+import { createMockClient, snapshotMock } from "./airwallex/mock";
 import { MemoryLedger } from "./ledger/memory";
 import { WebhookInbox } from "./webhooks/inbox";
 import type { Situation } from "./agents/situation";
@@ -131,12 +133,68 @@ export const SCENARIOS = {
     const res = await runDemo(awx, { approver: "joe" });
     return { awx, receipt: res.receipt, ledger: res.ledger };
   },
-  /** Main scenario twice against the same Airwallex account, the second time with an empty ledger. */
-  rerun: async () => {
+  /** One isolated scenario: pay once, snapshot the mock, then a fresh process reconciles the same actions.
+   *  It is not a continuation of `main`. `main` mints its own provider ids. */
+  replay: async () => {
     const awx = createMockClient();
-    await runDemo(awx, { approver: "joe" });
-    const res = await runDemo(awx, { approver: "joe" });
-    return { awx, receipt: res.receipt, ledger: res.ledger };
+    const first = await runDemo(awx, { approver: "joe" });
+    const proposal = first.rounds.at(-1)?.proposal;
+    if (!proposal || !first.receipt) throw new Error("replay pass 1 did not pay");
+    const dir = "artifacts/replay";
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(`${dir}/snapshot.json`, JSON.stringify(snapshotMock(awx)));
+    writeFileSync(`${dir}/actions.json`, JSON.stringify(proposal.actions));
+    const child = spawnSync("npx", ["tsx", "--conditions=react-server", "scripts/replay-from-snapshot.ts", dir], { encoding: "utf8" });
+    if (child.status !== 0) throw new Error(child.stderr || child.stdout || "replay child failed");
+    const second = JSON.parse(readFileSync(`${dir}/result.json`, "utf8")) as {
+      executions: { action: string; requestId: string; result: string; providerId: string | null; buyAmount?: number; transferAmount?: number }[];
+      transferCalls: number;
+      conversionCalls: number;
+      quoteCalls: number;
+      transfersSettled: number;
+      conversionsSettled: number;
+      balances: { currency: string; available_amount: number; total_amount?: number }[];
+    };
+    const fxFirst = first.executions.find((e) => e.actionKind === "fx_conversion" && e.result === "ok");
+    const trFirst = first.executions.find((e) => e.actionKind === "retry_transfer" && e.result === "ok");
+    const fxSecond = second.executions.find((e) => e.action === "fx_conversion");
+    const trSecond = second.executions.find((e) => e.action === "retry_transfer");
+    const fxAction = proposal.actions.find((a) => a.kind === "fx_conversion");
+    const same = Boolean(
+      fxFirst && trFirst && fxSecond && trSecond
+      && fxSecond.result === "already_done" && trSecond.result === "already_done"
+      && fxSecond.providerId === fxFirst.airwallexId && trSecond.providerId === trFirst.airwallexId
+      && fxSecond.requestId === fxFirst.requestId && trSecond.requestId === trFirst.requestId
+      && fxAction && fxAction.kind === "fx_conversion" && fxSecond.buyAmount === fxAction.buyAmount
+      && second.transferCalls === 0 && second.conversionCalls === 0 && second.quoteCalls === 0,
+    );
+    if (!same) {
+      throw new Error(`fresh-process replay did not keep the original provider ids: ${JSON.stringify({ fxFirst, trFirst, fxSecond, trSecond, calls: second })}`);
+    }
+    const lines = [
+      "ISOLATED REPLAY. Pass 1 and pass 2 are this scenario only. They are not the main scenario.",
+      `Pass 1 fx request_id=${fxFirst!.requestId} provider=${fxFirst!.airwallexId} buy=${fxAction && fxAction.kind === "fx_conversion" ? fxAction.buyAmount : "?"}`,
+      `Pass 1 transfer request_id=${trFirst!.requestId} provider=${trFirst!.airwallexId}`,
+      `Pass 2 fresh process fx request_id=${fxSecond!.requestId} provider=${fxSecond!.providerId} result=${fxSecond!.result} buy=${fxSecond!.buyAmount}`,
+      `Pass 2 fresh process transfer request_id=${trSecond!.requestId} provider=${trSecond!.providerId} result=${trSecond!.result} amount=${trSecond!.transferAmount}`,
+      `Pass 2 calls transfer=${second.transferCalls} conversion=${second.conversionCalls} quote=${second.quoteCalls} settled transfer=${second.transfersSettled} conversion=${second.conversionsSettled}`,
+      ...first.receipt.lines,
+    ];
+    const identity = {
+      note: "Harness output for this replay scenario only. Pass 2 is a fresh process. Provider ids match pass 1 here. They are not the main scenario's ids. A later process mints new provider ids. These request ids stay.",
+      requestIds: { fx: fxFirst!.requestId, transfer: trFirst!.requestId },
+      payload: { buyAmount: fxAction && fxAction.kind === "fx_conversion" ? fxAction.buyAmount : null, transferAmount: trSecond!.transferAmount ?? null },
+      pass1: { fxProvider: fxFirst!.airwallexId, transferProvider: trFirst!.airwallexId, fxResult: "ok", transferResult: "ok" },
+      pass2: {
+        fxProvider: fxSecond!.providerId, transferProvider: trSecond!.providerId,
+        fxResult: fxSecond!.result, transferResult: trSecond!.result, buyAmount: fxSecond!.buyAmount, transferAmount: trSecond!.transferAmount,
+        transferCalls: second.transferCalls, conversionCalls: second.conversionCalls, quoteCalls: second.quoteCalls,
+      },
+    };
+    writeFileSync(`${dir}/identity.json`, JSON.stringify(identity, null, 2));
+    mkdirSync("docs/shots", { recursive: true });
+    writeFileSync("docs/shots/replay-identity.json", JSON.stringify(identity, null, 2));
+    return { awx, ledger: first.ledger, receipt: { ...first.receipt, lines }, replayProof: second };
   },
   "stale-quote": async () => runStaleQuoteDemo({ approver: "joe" }),
   approval: async () => runApprovalDemo({ approveAfterMs: 90 * 60_000 }),

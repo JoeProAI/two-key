@@ -1,4 +1,4 @@
-import { createMockClient } from "../airwallex/mock";
+import { createMockClient, snapshotMock } from "../airwallex/mock";
 import { AirwallexError } from "../airwallex/types";
 import * as fx from "../airwallex/fixtures";
 import { WebhookInbox } from "../webhooks/inbox";
@@ -7,7 +7,10 @@ import { resetLedgerRemoteForTests, setLedgerApiForTests, setLedgerBackendForTes
 import { plan } from "../agents/planner";
 import { wring } from "../agents/wringer";
 import { approve, execute } from "../agents/executor";
-import { evidenceDigest } from "../receipt/bind";
+import { evidenceDigest, planDigest } from "../receipt/bind";
+import { reconcileSettled } from "../agents/reconcile";
+import { applyAvailable } from "../money";
+import { MemoryLedger } from "../ledger/memory";
 import { runDemo } from "../scenario";
 import { runApprovalDemo, runStaleQuoteDemo } from "../scenarios";
 import { anonymousDeskRejected } from "../desk/gate";
@@ -17,16 +20,26 @@ export interface MatrixRow {
   id: string;
   pass: boolean;
   detail: string;
-  balancesBefore: { currency: string; available: number }[];
-  balancesAfter: { currency: string; available: number }[];
+  balancesBefore: { currency: string; available: number; pending: number; reserved: number; total: number }[];
+  balancesAfter: { currency: string; available: number; pending: number; reserved: number; total: number }[];
   transfersBefore: number;
   transfersAfter: number;
   conversionsBefore: number;
   conversionsAfter: number;
+  transferCalls: number;
+  transfersSettled: number;
+  conversionCalls: number;
+  conversionsSettled: number;
 }
 
-const money = (rows: { currency: string; available_amount: number }[]) =>
-  rows.map((b) => ({ currency: b.currency, available: b.available_amount }));
+const money = (rows: { currency: string; available_amount: number; pending_amount?: number; reserved_amount?: number; total_amount?: number }[]) =>
+  rows.map((b) => ({
+    currency: b.currency,
+    available: b.available_amount,
+    pending: b.pending_amount ?? 0,
+    reserved: b.reserved_amount ?? 0,
+    total: b.total_amount ?? b.available_amount,
+  }));
 
 function row(id: string, pass: boolean, detail: string, before: ReturnType<typeof createMockClient>, after: ReturnType<typeof createMockClient> = before): MatrixRow {
   return {
@@ -34,9 +47,13 @@ function row(id: string, pass: boolean, detail: string, before: ReturnType<typeo
     balancesBefore: money(before.balances),
     balancesAfter: money(after.balances),
     transfersBefore: 0,
-    transfersAfter: after.calls.createTransfer,
+    transfersAfter: after.settled.transfers,
     conversionsBefore: 0,
-    conversionsAfter: after.calls.createConversion,
+    conversionsAfter: after.settled.conversions,
+    transferCalls: after.calls.createTransfer,
+    transfersSettled: after.settled.transfers,
+    conversionCalls: after.calls.createConversion,
+    conversionsSettled: after.settled.conversions,
   };
 }
 
@@ -248,23 +265,124 @@ export async function runMatrix(): Promise<MatrixRow[]> {
   {
     const awx = createMockClient();
     const before = money(awx.balances);
-    const first = await runDemo(awx, { approver: "joe" });
-    const proposal = first.ledger.proposals.at(-1);
-    const decision = first.ledger.decisions.find((d) => d.status === "approved");
-    if (proposal && decision) {
+    const planned = await runDemo(awx, {});
+    const waiting = planned.awaiting;
+    const proposal = planned.ledger.proposals.find((p) => p.id === waiting?.proposalId);
+    let refused = false;
+    if (waiting && proposal) {
+      approve(planned.ledger, waiting.id, "joe", fx.T0, Infinity, waiting.evidenceDigest);
       const action = proposal.actions.find((a) => a.kind === "retry_transfer");
       if (action && action.kind === "retry_transfer") action.amount += 1;
-      let refused = false;
       try {
-        await execute(first.ledger, awx, decision, proposal, fx.T0, new Set());
+        await execute(planned.ledger, awx, waiting, proposal, fx.T0, new Set());
       } catch (e) {
         refused = /bound actions/.test((e as Error).message);
       }
-      rows.push({
-        ...row("changed plan", refused && awx.calls.createTransfer === 1, `refused ${refused}, transfers stayed ${awx.calls.createTransfer}`, awx),
-        balancesBefore: before,
-      });
     }
+    const pass = refused && awx.calls.createTransfer === 0 && awx.calls.createConversion === 0 && awx.settled.transfers === 0 && awx.settled.conversions === 0;
+    rows.push({
+      ...row("changed plan before send", pass, `refused ${refused}, transfer calls ${awx.calls.createTransfer}, settled ${awx.settled.transfers}`, awx),
+      balancesBefore: before,
+      balancesAfter: money(awx.balances),
+    });
+  }
+
+  {
+    const awx = createMockClient();
+    const first = await runDemo(awx, { approver: "joe" });
+    const proposal = first.ledger.proposals.at(-1);
+    const decision = first.ledger.decisions.find((d) => d.status === "approved");
+    const original = first.executions.find((e) => e.actionKind === "fx_conversion" && e.result === "ok");
+    let mismatch = false;
+    if (proposal && decision && original) {
+      const actions = JSON.parse(JSON.stringify(proposal.actions)) as typeof proposal.actions;
+      const fxAction = actions.find((a) => a.kind === "fx_conversion");
+      if (fxAction && fxAction.kind === "fx_conversion") fxAction.buyAmount = 40000;
+      decision.boundDigest = planDigest(actions);
+      const calls = awx.calls.createConversion;
+      const settled = awx.settled.conversions;
+      const out = await execute(first.ledger, awx, decision, { ...proposal, actions }, fx.T0, new Set());
+      const rowFx = out.find((e) => e.actionKind === "fx_conversion");
+      const message = (rowFx?.response as { message?: string } | undefined)?.message ?? "";
+      mismatch = rowFx?.result === "error" && /does not match the action payload/.test(message)
+        && awx.calls.createConversion === calls && awx.settled.conversions === settled
+        && awx.conversions.get(original.requestId)?.conversion_id === original.airwallexId;
+    }
+    rows.push(row(
+      "payload mismatch after success",
+      mismatch,
+      `mismatch ${mismatch}, conversion calls ${awx.calls.createConversion}, settled ${awx.settled.conversions}`,
+      awx,
+    ));
+  }
+
+  {
+    const awx = createMockClient();
+    const first = await runDemo(awx, { approver: "joe" });
+    const usd = awx.balances.find((b) => b.currency === "USD");
+    if (usd) applyAvailable(usd, 5000);
+    const again = await first.rerun!();
+    const fxRow = again.find((e) => e.actionKind === "fx_conversion");
+    const kept = first.executions.find((e) => e.actionKind === "fx_conversion")?.airwallexId;
+    const pass = again.every((e) => e.result === "already_done")
+      && fxRow?.airwallexId === kept
+      && awx.calls.createConversion === 1 && awx.calls.createQuote === 1 && awx.calls.createTransfer === 1
+      && (fxRow?.response as { buy_amount?: number } | undefined)?.buy_amount === 28000;
+    rows.push(row("replay after changed balances", pass, `provider ${fxRow?.airwallexId ?? "missing"}, quotes ${awx.calls.createQuote}`, awx));
+  }
+
+  {
+    const awx = createMockClient();
+    let thrown = false;
+    const orig = awx.createTransfer.bind(awx);
+    awx.createTransfer = async (body) => {
+      if (!thrown) {
+        thrown = true;
+        awx.calls.createTransfer += 1;
+        throw new AirwallexError("beneficiary mismatch", 400, "validation_failed");
+      }
+      return orig(body);
+    };
+    const first = await runDemo(awx, { approver: "joe" });
+    const fxId = first.executions.find((e) => e.actionKind === "fx_conversion")?.airwallexId;
+    const decision = first.ledger.decisions.find((d) => d.status === "approved");
+    const proposal = first.ledger.proposals.at(-1);
+    const again = decision && proposal ? await execute(first.ledger, awx, decision, proposal, fx.T0, new Set()) : [];
+    const fxAgain = again.find((e) => e.actionKind === "fx_conversion");
+    const transfer = again.find((e) => e.actionKind === "retry_transfer");
+    const pass = fxAgain?.result === "already_done" && fxAgain.airwallexId === fxId
+      && transfer?.result === "ok" && awx.calls.createConversion === 1 && awx.settled.conversions === 1
+      && awx.calls.createTransfer === 2 && awx.settled.transfers === 1;
+    rows.push(row(
+      "partial then retry",
+      pass,
+      `fx ${fxAgain?.result ?? "missing"} provider ${fxAgain?.airwallexId ?? "missing"}, transfer calls ${awx.calls.createTransfer} settled ${awx.settled.transfers}`,
+      awx,
+    ));
+  }
+
+  {
+    const awx = createMockClient();
+    const first = await runDemo(awx, { approver: "joe" });
+    const snap = snapshotMock(awx);
+    const fresh = createMockClient({ balances: snap.balances, transfers: snap.transfers, conversions: snap.conversions, quotes: snap.quotes });
+    const actions = first.rounds.at(-1)!.proposal.actions;
+    const ledger = new MemoryLedger();
+    const out = await reconcileSettled(fresh, "intent_inv2291", actions, ledger, "dec_snap", fx.T0);
+    const fxFirst = first.executions.find((e) => e.actionKind === "fx_conversion");
+    const trFirst = first.executions.find((e) => e.actionKind === "retry_transfer");
+    const fxSecond = out.find((e) => e.actionKind === "fx_conversion");
+    const trSecond = out.find((e) => e.actionKind === "retry_transfer");
+    const pass = fxSecond?.result === "already_done" && trSecond?.result === "already_done"
+      && fxSecond.airwallexId === fxFirst?.airwallexId && trSecond.airwallexId === trFirst?.airwallexId
+      && fxSecond.requestId === fxFirst?.requestId && trSecond.requestId === trFirst?.requestId
+      && fresh.calls.createTransfer === 0 && fresh.calls.createConversion === 0 && fresh.calls.createQuote === 0;
+    rows.push(row(
+      "snapshot keeps provider id",
+      pass,
+      `fx ${fxSecond?.airwallexId ?? "missing"} transfer ${trSecond?.airwallexId ?? "missing"}, fresh calls ${fresh.calls.createTransfer}/${fresh.calls.createConversion}`,
+      fresh,
+    ));
   }
 
   {
@@ -293,7 +411,7 @@ export async function runMatrix(): Promise<MatrixRow[]> {
     const usd = awx.balances.find((b) => b.currency === "USD")?.available_amount;
     const pass = fxRow?.result === "ok" && transfer?.result === "error" && res.receipt === null && usd !== before.find((b) => b.currency === "USD")?.available;
     rows.push({
-      ...row("partial completion", pass, `fx ${fxRow?.result ?? "missing"}, transfer ${transfer?.result ?? "missing"}, usd ${usd}`, awx),
+      ...row("partial completion", pass, `fx ${fxRow?.result ?? "missing"}, transfer ${transfer?.result ?? "missing"}, transfer calls ${awx.calls.createTransfer} settled ${awx.settled.transfers}, usd ${usd}`, awx),
       balancesBefore: before,
       balancesAfter: money(awx.balances),
     });
@@ -333,9 +451,9 @@ export async function runMatrix(): Promise<MatrixRow[]> {
 }
 
 export function matrixText(rows: MatrixRow[]): string {
-  const lines = ["CASE | PASS | TRANSFERS | CONVERSIONS | DETAIL"];
+  const lines = ["CASE | PASS | TRANSFER_CALLS | TRANSFERS_SETTLED | CONVERSION_CALLS | CONVERSIONS_SETTLED | DETAIL"];
   for (const r of rows) {
-    lines.push(`${r.id} | ${r.pass ? "pass" : "FAIL"} | ${r.transfersAfter} | ${r.conversionsAfter} | ${r.detail}`);
+    lines.push(`${r.id} | ${r.pass ? "pass" : "FAIL"} | ${r.transferCalls} | ${r.transfersSettled} | ${r.conversionCalls} | ${r.conversionsSettled} | ${r.detail}`);
   }
   const failed = rows.filter((r) => !r.pass).length;
   lines.push(`${rows.length - failed} pass, ${failed} fail`);

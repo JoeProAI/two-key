@@ -1,8 +1,10 @@
 import "server-only";
-import { createMockClient } from "../airwallex/mock";
+import { createMockClient, snapshotMock } from "../airwallex/mock";
 import { AirwallexError } from "../airwallex/types";
 import * as fx from "../airwallex/fixtures";
-import { runDemo } from "../scenario";
+import { MemoryLedger } from "../ledger/memory";
+import { reconcileSettled } from "../agents/reconcile";
+import { buildReceipt, runDemo } from "../scenario";
 import { buildPack, executionsCsv, gitSha } from "../receipt/pack";
 import { presentPublic, publicIncident, renderSession } from "./session";
 import type { DeskView } from "./types";
@@ -34,20 +36,65 @@ export async function loadFixture(beat: FixtureBeat): Promise<DeskView> {
       throw new AirwallexError("insufficient funds", 400, "balance_insufficient");
     };
   }
-  if (beat === "replay") await runDemo(awx, { approver: "joe" });
+  if (beat === "replay") {
+    const replay = await replayFixture();
+    return presentPublic(renderSession({
+      awx: replay.awx, ledger: replay.ledger, phase: "paid", ledgerKind: "memory", warning: null, error: null, replayed: true, now: fx.T0, balancesBefore,
+    }), beat);
+  }
   const res = await runDemo(awx, { approver: beat === "planned" ? undefined : "joe" });
   const failed = res.executions.some((e) => e.result === "error");
   const phase = beat === "planned" ? "review" : failed ? "failed" : "paid";
   const error = failed ? "The FX conversion failed: insufficient funds. Nothing was marked paid." : null;
   return presentPublic(renderSession({
-    awx, ledger: res.ledger, phase, ledgerKind: "memory", warning: null, error, replayed: beat === "replay", now: fx.T0, balancesBefore,
+    awx, ledger: res.ledger, phase, ledgerKind: "memory", warning: null, error, replayed: false, now: fx.T0, balancesBefore,
   }), beat);
 }
 
+async function replayFixture() {
+  const awx = createMockClient();
+  const first = await runDemo(awx, { approver: "joe" });
+  const proposal = first.rounds.at(-1)?.proposal;
+  if (!proposal) throw new Error("fixture replay had no plan");
+  const snap = snapshotMock(awx);
+  const fresh = createMockClient({ balances: snap.balances, transfers: snap.transfers, conversions: snap.conversions, quotes: snap.quotes });
+  const ledger = new MemoryLedger();
+  ledger.intents.push(...first.ledger.intents);
+  ledger.proposals.push(...first.ledger.proposals);
+  ledger.decisions.push(...first.ledger.decisions);
+  ledger.objections.push(...first.ledger.objections);
+  ledger.executions.push(...first.ledger.executions);
+  await reconcileSettled(fresh, "intent_inv2291", proposal.actions, ledger, proposal.id, fx.T0);
+  buildReceipt(ledger, "intent_inv2291", fx.T0);
+  return { awx: fresh, ledger };
+}
+
 export async function fixturePack(beat: FixtureBeat = "paid") {
+  if (beat === "replay") {
+    const replay = await replayFixture();
+    const awx = replay.awx;
+    return buildPack({
+      ledger: replay.ledger,
+      intentId: "intent_inv2291",
+      mode: "MOCK",
+      fixture: "northwind-inv2291",
+      gitSha: gitSha(),
+      runId: "fixture-replay",
+      balancesBefore: fx.balances.map((b) => ({ currency: b.currency, available: b.available_amount })),
+      balancesAfter: awx.balances.map((b) => ({
+        currency: b.currency, available: b.available_amount, pending: b.pending_amount ?? 0, reserved: b.reserved_amount ?? 0, total: b.total_amount ?? b.available_amount,
+      })),
+      reserve: { currency: "USD", amount: fx.RESERVE_USD },
+      queued: [{ id: fx.queuedPayout.id, amount: fx.queuedPayout.amount, currency: fx.queuedPayout.currency, label: fx.queuedPayout.label }],
+      webhooks: fx.demoWebhookDeliveries.map((e) => ({ id: e.id, name: e.name, createdAt: e.created_at, status: e.data.object.status })),
+      transferCalls: awx.calls.createTransfer,
+      transfersSettled: awx.settled.transfers,
+      conversionCalls: awx.calls.createConversion,
+      conversionsSettled: awx.settled.conversions,
+    });
+  }
   const awx = createMockClient();
   const before = awx.balances.map((b) => ({ currency: b.currency, available: b.available_amount }));
-  if (beat === "replay") await runDemo(awx, { approver: "joe" });
   const approver = beat === "incident" || beat === "planned" ? undefined : "joe";
   const res = beat === "incident" ? await runDemo(awx, {}) : await runDemo(awx, { approver });
   return buildPack({
@@ -58,12 +105,16 @@ export async function fixturePack(beat: FixtureBeat = "paid") {
     gitSha: gitSha(),
     runId: `fixture-${beat}`,
     balancesBefore: before,
-    balancesAfter: awx.balances.map((b) => ({ currency: b.currency, available: b.available_amount })),
+    balancesAfter: awx.balances.map((b) => ({
+      currency: b.currency, available: b.available_amount, pending: b.pending_amount ?? 0, reserved: b.reserved_amount ?? 0, total: b.total_amount ?? b.available_amount,
+    })),
     reserve: { currency: "USD", amount: fx.RESERVE_USD },
     queued: [{ id: fx.queuedPayout.id, amount: fx.queuedPayout.amount, currency: fx.queuedPayout.currency, label: fx.queuedPayout.label }],
     webhooks: fx.demoWebhookDeliveries.map((e) => ({ id: e.id, name: e.name, createdAt: e.created_at, status: e.data.object.status })),
-    transfersCreated: awx.calls.createTransfer,
-    conversionsCreated: awx.calls.createConversion,
+    transferCalls: awx.calls.createTransfer,
+    transfersSettled: awx.settled.transfers,
+    conversionCalls: awx.calls.createConversion,
+    conversionsSettled: awx.settled.conversions,
   });
 }
 

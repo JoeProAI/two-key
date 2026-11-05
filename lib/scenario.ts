@@ -3,10 +3,13 @@ import * as fx from "./airwallex/fixtures";
 import { MemoryLedger } from "./ledger/memory";
 import { WebhookInbox } from "./webhooks/inbox";
 import type { Situation } from "./agents/situation";
+import type { Finding } from "./agents/wringer";
+import type { Decision, Proposal } from "./ledger/types";
 import { plan } from "./agents/planner";
 import { review } from "./agents/wringer";
 import { approve, decide, execute } from "./agents/executor";
-import { round } from "./money";
+import { applyAvailable, round } from "./money";
+import { canonicalRetryId } from "./requestId";
 import { evidenceDigest } from "./receipt/bind";
 
 export function snapEvidence(situation: Situation): string {
@@ -45,9 +48,16 @@ export async function runDemo(awx: AirwallexClient, opts: { approver?: string; n
     approvalThresholdUsd: opts.thresholdUsd ?? 10000,
   };
 
-  const rounds = [];
+  const rounds: { proposal: Proposal; findings: Finding[]; decision: Decision }[] = [];
   let objections: string[] = [];
   let depositLine: string | null = null;
+  const liveRetry = await awx.findTransferByRequestId(canonicalRetryId(intent.id, original));
+  if (liveRetry && liveRetry.status !== "FAILED" && liveRetry.status !== "CANCELLED") {
+    return {
+      ledger, rounds, executions: [], receipt: null, awaiting: null, depositLine,
+      refusedReplan: "This intent already has a live retry transfer. Reconcile the original receipt. This run did not replan or pay.",
+    };
+  }
   for (let r = 1; r <= 3; r++) {
     if (r > 1) {
       // Fund the shortfall: transfer + reserve - available USD (low-priority payouts deferred).
@@ -68,8 +78,7 @@ export async function runDemo(awx: AirwallexClient, opts: { approver?: string; n
         const credit = (rows: { currency: string; available_amount: number; total_amount?: number }[] | undefined) => {
           const usd = rows?.find((b) => b.currency === "USD");
           if (!usd) return;
-          usd.available_amount += opts.depositUsd!;
-          if (usd.total_amount !== undefined) usd.total_amount += opts.depositUsd!;
+          applyAvailable(usd, opts.depositUsd!);
         };
         credit(situation.balances);
         credit((awx as { balances?: { currency: string; available_amount: number; total_amount?: number }[] }).balances);

@@ -3,7 +3,8 @@ import { createMockClient } from "../airwallex/mock";
 import * as fx from "../airwallex/fixtures";
 import type { Action } from "../ledger/types";
 import { MemoryLedger } from "../ledger/memory";
-import { stableRequestId } from "../requestId";
+import { canonicalRetryId } from "../requestId";
+import { reconcileSettled } from "../agents/reconcile";
 import { buildReceipt, runDemo } from "../scenario";
 import { approve, execute } from "../agents/executor";
 import { evidenceDigest } from "../receipt/bind";
@@ -167,7 +168,7 @@ function executionRows(rows: { actionKind: string; requestId: string; result: st
 }
 
 function baseView(partial: Partial<DeskView> & Pick<DeskView, "phase" | "rounds" | "receipt" | "canPlan" | "canApprove" | "canReplay">): DeskView {
-  const requestId = stableRequestId(INTENT_ID, "retry_transfer", "0");
+  const requestId = canonicalRetryId(INTENT_ID, fx.originalTransfer);
   const view: DeskView = {
     transferId: fx.ORIGINAL_TRANSFER_ID,
     amount: fmt(fx.originalTransfer.transfer_amount),
@@ -185,6 +186,10 @@ function baseView(partial: Partial<DeskView> & Pick<DeskView, "phase" | "rounds"
     requestId,
     transfersCreated: null,
     conversionsCreated: null,
+    transferCalls: partial.transferCalls ?? partial.transfersCreated ?? null,
+    transfersSettled: partial.transfersSettled ?? null,
+    conversionCalls: partial.conversionCalls ?? partial.conversionsCreated ?? null,
+    conversionsSettled: partial.conversionsSettled ?? null,
     ledgerLabel: ledgerLabel(ledgerBackend() === "convex" ? "convex" : "memory"),
     modelLabel: modelLabel(),
     error: store.bootError,
@@ -224,9 +229,19 @@ function viewFromSession(s: Session): DeskView {
     phase: s.phase,
     rounds,
     receipt,
-    balances: s.awx.balances.map((b) => ({ currency: b.currency, available: fmt(b.available_amount) })),
+    balances: s.awx.balances.map((b) => ({
+      currency: b.currency,
+      available: fmt(b.available_amount),
+      pending: fmt(b.pending_amount ?? 0),
+      reserved: fmt(b.reserved_amount ?? 0),
+      total: fmt(b.total_amount ?? b.available_amount),
+    })),
     transfersCreated: s.awx.calls.createTransfer,
     conversionsCreated: s.awx.calls.createConversion,
+    transferCalls: s.awx.calls.createTransfer,
+    transfersSettled: s.awx.settled.transfers,
+    conversionCalls: s.awx.calls.createConversion,
+    conversionsSettled: s.awx.settled.conversions,
     ledgerLabel: ledgerLabel(s.ledgerKind),
     error: s.error ?? store.bootError,
     warning: s.warning,
@@ -264,6 +279,10 @@ function viewFromRemote(remote: RemoteIncident): DeskView | null {
     receipt: remote.receipts.at(-1)?.lines ?? null,
     transfersCreated: paid ? retrySends : null,
     conversionsCreated: paid ? conversionSends : null,
+    transferCalls: null,
+    transfersSettled: paid ? retrySends : null,
+    conversionCalls: null,
+    conversionsSettled: paid ? conversionSends : null,
     ledgerLabel: "Convex",
     warning: paid
       ? "Loaded from the ledger. This process has not sent a payment."
@@ -380,11 +399,25 @@ function failureCopy(kind: Action["kind"], response: unknown): string {
 
 export async function replaySession(who: string, access: DeskAccess = NO_ACCESS) {
   assertDeskAccess(access);
+  void who;
   const current = store.session;
   if (!current || current.phase !== "paid") throw new Error("Pay once before replaying.");
-  const ledger = new MemoryLedger();
-  await runDemo(current.awx, { approver: who, ledger, now: current.now });
-  current.ledger = ledger;
+  const decision = [...current.ledger.decisions].reverse().find((d) => d.status === "approved");
+  const proposal = current.ledger.proposals.find((p) => p.id === decision?.proposalId);
+  if (!decision || !proposal) throw new Error("No approved plan to reconcile.");
+  const calls = { ...current.awx.calls };
+  const outcomes = await reconcileSettled(current.awx, INTENT_ID, proposal.actions, current.ledger, decision.id, current.now);
+  if (current.awx.calls.createTransfer !== calls.createTransfer || current.awx.calls.createConversion !== calls.createConversion || current.awx.calls.createQuote !== calls.createQuote) {
+    throw new Error("Reconcile sent a provider call.");
+  }
+  const failed = outcomes.find((o) => o.result === "error");
+  if (failed) {
+    const body = failed.response as { message?: string } | null;
+    current.error = body?.message ?? "Reconcile failed. Nothing new was sent.";
+    current.replayed = false;
+    return;
+  }
+  buildReceipt(current.ledger, INTENT_ID, current.now);
   current.replayed = true;
   current.balancesBefore = current.balancesBefore ?? fx.balances.map((b) => ({ currency: b.currency, available: fmt(b.available_amount) }));
   current.error = null;
