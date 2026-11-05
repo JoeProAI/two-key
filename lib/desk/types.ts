@@ -34,7 +34,7 @@ export interface DeskWebhook {
 
 /** Plain view of the $40k desk. Safe to render in the browser. */
 export interface DeskView {
-  phase: "incident" | "review" | "paid";
+  phase: "incident" | "review" | "paid" | "failed";
   transferId: string;
   amount: string;
   currency: string;

@@ -16,7 +16,7 @@ const INTENT_ID = "intent_inv2291";
 type Session = {
   awx: ReturnType<typeof createMockClient>;
   ledger: MemoryLedger;
-  phase: "review" | "paid";
+  phase: "review" | "paid" | "failed";
   ledgerKind: "memory" | "convex";
   warning: string | null;
   error: string | null;
@@ -118,6 +118,7 @@ function ledgerLabel(kind: "memory" | "convex"): string {
 
 function keyCopy(phase: DeskView["phase"], plannerSeated: boolean, wringerSeated: boolean, blockCount: number, requestId: string): string {
   if (phase === "paid") return `Paid once under request_id ${requestId}.`;
+  if (phase === "failed") return "The approved plan did not finish. Nothing is marked paid. Retry it or replan with fresh balances.";
   if (!plannerSeated) return "Both keys are open. Run the planner.";
   if (!wringerSeated) return `Wringer key is open. ${blockCount} blocking objection${blockCount === 1 ? "" : "s"} on the latest round.`;
   return "Both keys are seated. One tap pays once.";
@@ -174,8 +175,8 @@ function viewFromSession(s: Session): DeskView {
     ledgerLabel: ledgerLabel(s.ledgerKind),
     error: s.error ?? store.bootError,
     warning: s.warning,
-    canPlan: false,
-    canApprove: s.phase === "review",
+    canPlan: s.phase === "failed",
+    canApprove: s.phase === "review" || s.phase === "failed",
     canReplay: s.phase === "paid",
     replayed: s.replayed,
   });
@@ -223,8 +224,9 @@ async function project(s: Session) {
 }
 
 export async function openPlan() {
-  if (store.session) return;
-  const awx = createMockClient();
+  if (store.session && store.session.phase !== "failed") return;
+  // A replan after a failed send keeps the same Airwallex state: whatever did move stays moved.
+  const awx = store.session?.awx ?? createMockClient();
   const ledger = new MemoryLedger();
   const now = fx.T0;
   await runDemo(awx, { ledger, now });
@@ -237,18 +239,35 @@ export async function approveSession(who: string) {
   const current = store.session;
   if (!current) throw new Error("Plan the incident before approving.");
   if (current.phase === "paid") return;
-  const decision = current.ledger.decisions.find((d) => d.status === "awaiting_human");
+  const decision = current.phase === "failed"
+    ? current.ledger.decisions.filter((d) => d.status === "approved").at(-1)
+    : current.ledger.decisions.find((d) => d.status === "awaiting_human");
   if (!decision) throw new Error("Nothing is waiting for a tap.");
   const proposal = current.ledger.proposals.find((p) => p.id === decision.proposalId);
   if (!proposal) throw new Error("The plan for that decision is missing.");
-  approve(current.ledger, decision.id, who, current.now);
-  await execute(current.ledger, current.awx, decision, proposal, current.now, new Set());
+  if (decision.status === "awaiting_human") approve(current.ledger, decision.id, who, current.now);
+  const outcomes = await execute(current.ledger, current.awx, decision, proposal, current.now, new Set());
+  const failed = outcomes.find((o) => o.result === "error");
+  if (failed) {
+    current.phase = "failed";
+    current.error = failureCopy(failed.actionKind, failed.response);
+    await project(current);
+    return;
+  }
   buildReceipt(current.ledger, INTENT_ID, current.now);
   const intent = current.ledger.intents.find((i) => i.id === INTENT_ID);
   if (intent) intent.status = "resolved";
   current.phase = "paid";
   current.error = null;
   await project(current);
+}
+
+const ACTION_NAMES: Record<Action["kind"], string> = { retry_transfer: "The retry transfer", fx_conversion: "The FX conversion", defer_payout: "The payout deferral" };
+
+function failureCopy(kind: Action["kind"], response: unknown): string {
+  const raw = (response as { message?: unknown } | undefined)?.message;
+  const detail = publicError(new Error(typeof raw === "string" && raw ? raw : "no detail"));
+  return `${ACTION_NAMES[kind]} failed: ${detail}. Nothing was marked paid. Retry the approved plan or replan.`;
 }
 
 export async function replaySession(who: string) {

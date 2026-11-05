@@ -153,7 +153,7 @@ export function Desk({ view }: { view: DeskView }) {
             ))}
             {view.canPlan ? (
               <form action={planDesk}>
-                <Submit className="ghost" idle="Run the planner" pending="Filing the plan" />
+                <Submit className="ghost" idle={view.phase === "failed" ? "Replan with fresh balances" : "Run the planner"} pending="Filing the plan" />
               </form>
             ) : null}
           </section>
@@ -202,7 +202,7 @@ export function Desk({ view }: { view: DeskView }) {
             <form className="tap" action={approveDesk}>
               <label htmlFor="approver">Approver</label>
               <input id="approver" name="approver" type="text" defaultValue="joe" maxLength={40} autoComplete="name" required disabled={!view.canApprove} />
-              <Submit idle="Approve and pay once" pending="Paying once" disabled={!view.canApprove} />
+              <Submit idle={view.phase === "failed" ? "Retry the approved plan" : "Approve and pay once"} pending="Paying once" disabled={!view.canApprove} />
             </form>
           )}
         </aside>
