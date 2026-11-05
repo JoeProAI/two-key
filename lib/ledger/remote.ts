@@ -15,7 +15,7 @@ export function ledgerBackend(env: NodeJS.ProcessEnv = process.env): "memory" | 
 
 export interface LedgerApi {
   upsert(args: Record<string, unknown>): Promise<unknown>;
-  claim(args: Record<string, unknown>): Promise<{ claimed: boolean }>;
+  claim(args: Record<string, unknown>): Promise<{ claimed: boolean; reason?: string }>;
   finish(args: Record<string, unknown>): Promise<unknown>;
   load(args: Record<string, unknown>): Promise<RemoteIncident | null>;
 }
@@ -45,7 +45,7 @@ async function apiFor(env: NodeJS.ProcessEnv): Promise<LedgerApi> {
   const client = new ConvexHttpClient(url);
   return {
     upsert: (args) => client.mutation(anyApi.ledger.upsertIncident, args),
-    claim: async (args) => (await client.mutation(anyApi.ledger.claimExecutionPublic, args)) as { claimed: boolean },
+    claim: async (args) => (await client.mutation(anyApi.ledger.claimExecutionPublic, args)) as { claimed: boolean; reason?: string },
     finish: (args) => client.mutation(anyApi.ledger.finishExecution, args),
     load: async (args) => (await client.query(anyApi.ledger.getIncident, args)) as RemoteIncident | null,
   };
@@ -64,19 +64,21 @@ export async function loadIncident(intentKey: string, env: NodeJS.ProcessEnv = p
   return api.load({ secret: env.TWO_KEY_INGEST_SECRET ?? "", intentKey });
 }
 
-/** `free` means this process may send. `taken` means the ledger already holds the request_id. */
+/** `free` means this owner may send. `taken` means the ledger already holds a finished outcome for the request_id.
+ *  `busy` means another owner holds a live claim on it: do not send and do not write over it. */
 export async function takeRequestSlot(
-  slot: { decisionId: string; requestId: string; actionKind: string },
+  slot: { decisionId: string; requestId: string; actionKind: string; owner: string },
   env: NodeJS.ProcessEnv = process.env,
-): Promise<"free" | "taken"> {
+): Promise<"free" | "taken" | "busy"> {
   if (ledgerBackend(env) !== "convex") return "free";
   const api = await apiFor(env);
   const res = await api.claim({ secret: env.TWO_KEY_INGEST_SECRET ?? "", ...slot });
-  return res.claimed ? "free" : "taken";
+  if (res.claimed) return "free";
+  return res.reason === "busy" ? "busy" : "taken";
 }
 
 export async function finishRequest(
-  ex: { id: string; decisionId: string; requestId: string; actionKind: string; result: string; airwallexId?: string; response: unknown; createdAt: number },
+  ex: { id: string; decisionId: string; requestId: string; actionKind: string; result: string; airwallexId?: string; owner?: string; response: unknown; createdAt: number },
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
   if (ledgerBackend(env) !== "convex") return;
@@ -89,6 +91,7 @@ export async function finishRequest(
     actionKind: ex.actionKind,
     result: ex.result,
     airwallexId: ex.airwallexId,
+    owner: ex.owner,
     response: ex.response,
     createdAt: ex.createdAt,
   });

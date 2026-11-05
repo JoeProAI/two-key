@@ -56,12 +56,14 @@ describe("ledger backend", () => {
 });
 
 describe("execution claim", () => {
-  it("holds ok and already_done, resumes claimed, and retries error", () => {
-    expect(claimDecision(null)).toEqual({ claimed: true, resume: false });
-    expect(claimDecision({ result: "ok" })).toEqual({ claimed: false, resume: false });
-    expect(claimDecision({ result: "already_done" })).toEqual({ claimed: false, resume: false });
-    expect(claimDecision({ result: "claimed" })).toEqual({ claimed: true, resume: true });
-    expect(claimDecision({ result: "error" })).toEqual({ claimed: true, resume: false });
+  it("holds ok and already_done, refuses a live claim, and retries error", () => {
+    expect(claimDecision(null, "a", 0)).toEqual({ claimed: true, resume: false });
+    expect(claimDecision({ result: "ok" }, "a", 0)).toEqual({ claimed: false, reason: "done" });
+    expect(claimDecision({ result: "already_done" }, "a", 0)).toEqual({ claimed: false, reason: "done" });
+    expect(claimDecision({ result: "claimed", owner: "a", leaseUntil: 100 }, "b", 50)).toEqual({ claimed: false, reason: "busy" });
+    expect(claimDecision({ result: "claimed", owner: "a", leaseUntil: 100 }, "a", 50)).toEqual({ claimed: true, resume: true });
+    expect(claimDecision({ result: "claimed", owner: "a", leaseUntil: 100 }, "b", 100)).toEqual({ claimed: true, resume: true });
+    expect(claimDecision({ result: "error" }, "a", 0)).toEqual({ claimed: true, resume: false });
   });
 
   it("a taken slot sends nothing", async () => {
@@ -78,6 +80,6 @@ describe("execution claim", () => {
     expect(awx.calls.createConversion).toBe(0);
     expect(awx.calls.createQuote).toBe(1);
     expect(res.executions.every((e) => e.result === "already_done")).toBe(true);
-    expect(await takeRequestSlot({ decisionId: "d", requestId: "r", actionKind: "retry_transfer" })).toBe("taken");
+    expect(await takeRequestSlot({ decisionId: "d", requestId: "r", actionKind: "retry_transfer", owner: "o" })).toBe("taken");
   });
 });

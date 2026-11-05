@@ -4,7 +4,7 @@ import { internalMutationGeneric, mutationGeneric, queryGeneric } from "convex/s
 import type { GenericMutationCtx, GenericDataModel } from "convex/server";
 import type { GenericId, Value } from "convex/values";
 import { v } from "convex/values";
-import { claimDecision } from "../lib/ledger/claim";
+import { CLAIM_LEASE_MS, claimDecision, finishDecision } from "../lib/ledger/claim";
 
 const ingestArgs = {
   eventId: v.string(), name: v.string(), accountId: v.optional(v.string()), objectId: v.string(),
@@ -48,44 +48,58 @@ export const timeline = queryGeneric({
     ctx.db.query("webhookEvents").withIndex("by_object_created", (q) => q.eq("objectId", objectId)).collect(),
 });
 
-type ExecRow = { _id: GenericId<"executions">; result?: string; requestId?: string };
+type ExecRow = { _id: GenericId<"executions">; result?: string; requestId?: string; owner?: string; leaseUntil?: number };
+
+function priorOf(row: ExecRow | null) {
+  return row ? { result: String(row.result), owner: row.owner, leaseUntil: row.leaseUntil } : null;
+}
+
+async function execByRequestId(ctx: GenericMutationCtx<GenericDataModel>, requestId: string) {
+  return (await ctx.db.query("executions").withIndex("by_request_id", (q) => q.eq("requestId", requestId)).first()) as ExecRow | null;
+}
 
 function assertIngestSecret(secret: string) {
   const expected = process.env.TWO_KEY_INGEST_SECRET;
   if (!expected || secret !== expected) throw new Error("unauthorized");
 }
 
-/** Reserve an execution slot by request_id. Inserts a `claimed` row so a second caller does not re-send. */
-export async function claimHandler(ctx: GenericMutationCtx<GenericDataModel>, a: { decisionId: string; requestId: string; actionKind: string }) {
-  const prior = (await ctx.db.query("executions").withIndex("by_request_id", (q) => q.eq("requestId", a.requestId)).first()) as ExecRow | null;
-  const decision = claimDecision(prior ? { result: String(prior.result) } : null);
-  if (!decision.claimed) return { claimed: false, prior };
-  if (decision.resume && prior) return { claimed: true, prior };
+/** Reserve an execution slot by request_id for one owner. Inserts or takes over a `claimed` row with a lease.
+ *  A live claim held by another owner answers `busy`, so two workers never both reach Airwallex. */
+export async function claimHandler(
+  ctx: GenericMutationCtx<GenericDataModel>,
+  a: { decisionId: string; requestId: string; actionKind: string; owner: string },
+  now: number = Date.now(),
+) {
+  const prior = await execByRequestId(ctx, a.requestId);
+  const decision = claimDecision(priorOf(prior), a.owner, now);
+  if (!decision.claimed) return { claimed: false, reason: decision.reason };
   const doc = {
     key: a.requestId,
     decisionKey: a.decisionId,
     requestId: a.requestId,
     actionKind: a.actionKind,
     result: "claimed" as const,
+    owner: a.owner,
+    leaseUntil: now + CLAIM_LEASE_MS,
     response: { state: "claimed" },
-    createdAt: Date.now(),
+    createdAt: now,
   };
-  if (prior && prior.result === "error") {
+  if (prior) {
     await ctx.db.patch(prior._id, doc);
-    return { claimed: true, prior: null };
+    return { claimed: true, resume: decision.resume };
   }
   await ctx.db.insert("executions", doc);
-  return { claimed: true, prior: null };
+  return { claimed: true, resume: false };
 }
 
 export const claimExecution = internalMutationGeneric({
-  args: { decisionId: v.string(), requestId: v.string(), actionKind: v.string() },
+  args: { decisionId: v.string(), requestId: v.string(), actionKind: v.string(), owner: v.string() },
   handler: (ctx, a) => claimHandler(ctx, a),
 });
 
 /** Same claim for the Next server (ConvexHttpClient). Guarded by TWO_KEY_INGEST_SECRET. */
 export const claimExecutionPublic = mutationGeneric({
-  args: { secret: v.string(), decisionId: v.string(), requestId: v.string(), actionKind: v.string() },
+  args: { secret: v.string(), decisionId: v.string(), requestId: v.string(), actionKind: v.string(), owner: v.string() },
   handler: async (ctx, { secret, ...a }) => {
     assertIngestSecret(secret);
     return claimHandler(ctx, a);
@@ -99,25 +113,35 @@ const finishArgs = {
   actionKind: v.string(),
   result: v.union(v.literal("ok"), v.literal("already_done"), v.literal("error"), v.literal("claimed")),
   airwallexId: v.optional(v.string()),
+  owner: v.optional(v.string()),
   response: v.any(),
   createdAt: v.number(),
 };
 
-/** Write the outcome of a claimed slot. A finished ok / already_done row is not downgraded. */
+type FinishArgs = {
+  key: string; decisionKey: string; requestId: string; actionKind: string;
+  result: "ok" | "already_done" | "error" | "claimed"; airwallexId?: string; owner?: string; response: Value; createdAt: number;
+};
+
+/** Write the outcome of a claimed slot. A finished ok / already_done row is not downgraded, and only the
+ *  owner of a live claim can turn it into an error. */
+export async function finishHandler(ctx: GenericMutationCtx<GenericDataModel>, ex: FinishArgs) {
+  const prior = await execByRequestId(ctx, ex.requestId);
+  const verdict = finishDecision(priorOf(prior), ex);
+  if (verdict === "keep") return { wrote: "kept" };
+  if (verdict === "insert" || !prior) {
+    await ctx.db.insert("executions", ex);
+    return { wrote: "insert" };
+  }
+  await ctx.db.patch(prior._id, ex);
+  return { wrote: "patch" };
+}
+
 export const finishExecution = mutationGeneric({
   args: { secret: v.string(), ...finishArgs },
   handler: async (ctx, { secret, ...ex }) => {
     assertIngestSecret(secret);
-    const prior = (await ctx.db.query("executions").withIndex("by_request_id", (q) => q.eq("requestId", ex.requestId)).first()) as ExecRow | null;
-    if (prior && (prior.result === "ok" || prior.result === "already_done") && (ex.result === "error" || ex.result === "claimed")) {
-      return { wrote: "kept" };
-    }
-    if (!prior) {
-      await ctx.db.insert("executions", ex);
-      return { wrote: "insert" };
-    }
-    await ctx.db.patch(prior._id, ex);
-    return { wrote: "patch" };
+    return finishHandler(ctx, ex);
   },
 });
 
@@ -181,12 +205,7 @@ export const upsertIncident = mutationGeneric({
     for (const row of objections) await ctx.db.insert("objections", row);
     for (const row of decisions) await ctx.db.insert("decisions", row);
     for (const row of receipts) await ctx.db.insert("receipts", row);
-    for (const ex of executions) {
-      const prior = (await ctx.db.query("executions").withIndex("by_request_id", (q) => q.eq("requestId", ex.requestId)).first()) as ExecRow | null;
-      if (prior && (prior.result === "ok" || prior.result === "already_done") && ex.result === "error") continue;
-      if (!prior) await ctx.db.insert("executions", ex);
-      else await ctx.db.patch(prior._id, ex);
-    }
+    for (const ex of executions) await finishHandler(ctx, ex);
     return { intentKey: intent.key };
   },
 });
