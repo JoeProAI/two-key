@@ -54,18 +54,33 @@ export function stubPlan(s: Situation, round_: number, objections: string[]): Pl
   };
 }
 
-/** Live path: the model is consulted when OpenRouter is configured. Code still files every move.
- *  The model cannot add a retry, change an amount, or choose a request_id. Round 1 stays the
- *  fixture plan so the Wringer still has a double-pay to block. A failed call leaves the fixture. */
+/** Live path: the model is consulted when OpenRouter is configured. Its `summary` becomes the plan text.
+ *  Code still files every move: the model cannot add a retry, change an amount, or choose a request_id.
+ *  Round 1 stays the fixture moves so the Wringer still has a double-pay to block. A failed call or a
+ *  reply without a usable summary leaves the fixture summary. */
 export async function plan(s: Situation, round_: number, objections: string[], opts: PlanOptions = {}): Promise<Plan> {
   const stub = stubPlan(s, round_, objections);
   const env = opts.env ?? process.env;
   if (agentMode(env) !== "llm") return stub;
   try {
     const chat = opts.chat ?? ((role, system, user, callEnv) => chatJSON(role, system, user, callEnv));
-    await chat("planner", PLANNER_SYSTEM, { situation: s, round: round_, objections }, env);
+    const reply = await chat("planner", PLANNER_SYSTEM, { situation: s, round: round_, objections }, env);
+    const summary = modelSummary(reply);
+    if (summary) return { summary, actions: stub.actions };
   } catch {
     /* Fixture plan stands. The model never gets a second chance to edit it. */
   }
   return stub;
+}
+
+export const MAX_SUMMARY_CHARS = 400;
+
+/** The only field taken from the model. Anything that is not a non-empty string is ignored. */
+export function modelSummary(reply: unknown): string | null {
+  if (!reply || typeof reply !== "object") return null;
+  const raw = (reply as { summary?: unknown }).summary;
+  if (typeof raw !== "string") return null;
+  const cleaned = raw.replace(/\p{Cc}+/gu, " ").replace(/\s+/g, " ").trim();
+  if (!cleaned) return null;
+  return cleaned.length > MAX_SUMMARY_CHARS ? `${cleaned.slice(0, MAX_SUMMARY_CHARS - 3)}...` : cleaned;
 }

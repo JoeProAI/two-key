@@ -135,7 +135,7 @@ describe("Wringer hard stops survive the model", () => {
       },
     });
     expect(calls).toBe(1);
-    expect(filed).toEqual(stubPlan(s, 2, ["double_payment"]));
+    expect(filed.actions).toEqual(stubPlan(s, 2, ["double_payment"]).actions);
     expect(filed.actions.filter((a) => a.kind === "retry_transfer")).toHaveLength(1);
     expect(JSON.stringify(filed)).not.toContain("model-picked");
   });
@@ -152,5 +152,48 @@ describe("Wringer hard stops survive the model", () => {
     });
     expect(calls).toBe(0);
     expect(filed).toEqual(stubPlan(s, 1, []));
+  });
+});
+
+describe("Live planner commentary", () => {
+  const quoted = (): Situation => {
+    const s = situation();
+    s.quote = {
+      quote_id: "q", buy_currency: "USD", sell_currency: "EUR", buy_amount: 28000, sell_amount: 26000, client_rate: 1.08,
+      validity: "MIN_15", valid_from_at: fx.iso(fx.T0), valid_to_at: fx.iso(fx.T0 + 900_000),
+    };
+    return s;
+  };
+
+  it("uses the model summary and keeps the filed moves", async () => {
+    const s = quoted();
+    const stub = stubPlan(s, 2, ["double_payment"]);
+    const filed = await plan(s, 2, ["double_payment"], {
+      env: llmEnv,
+      chat: async () => ({ summary: "  Funding needs a EUR conversion\nbefore the retry. ", moves: [{ kind: "retry_transfer" }] }),
+    });
+    expect(filed.summary).toBe("Funding needs a EUR conversion before the retry.");
+    expect(filed.actions).toEqual(stub.actions);
+  });
+
+  it("keeps the stub summary when the reply has no usable summary", async () => {
+    const s = quoted();
+    const stub = stubPlan(s, 2, ["double_payment"]);
+    for (const reply of [{}, { summary: "" }, { summary: "   " }, { summary: 42 }, null, "just text"]) {
+      expect(await plan(s, 2, ["double_payment"], { env: llmEnv, chat: async () => reply })).toEqual(stub);
+    }
+    const thrown = await plan(s, 2, ["double_payment"], {
+      env: llmEnv,
+      chat: async () => {
+        throw new Error("OpenRouter planner call failed: 502");
+      },
+    });
+    expect(thrown).toEqual(stub);
+  });
+
+  it("caps a long summary", async () => {
+    const s = quoted();
+    const filed = await plan(s, 2, ["double_payment"], { env: llmEnv, chat: async () => ({ summary: "x".repeat(2000) }) });
+    expect(filed.summary.length).toBeLessThanOrEqual(400);
   });
 });
