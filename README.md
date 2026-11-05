@@ -9,7 +9,7 @@ Status: mock $40k desk runs with no model key and no Convex deployment. Live san
 ## Run it
 
 ```bash
-npm install --legacy-peer-deps
+npm install
 cp .env.example .env.local     # AIRWALLEX_MODE=mock. Agents stay on fixtures until the OpenRouter key and both model names are set.
 npm run demo                   # scripted $40k scenario, prints the receipt
 npm run demo -- rerun          # same, run twice; second run has an empty ledger and sends nothing new
