@@ -8,7 +8,7 @@ import { buildReceipt, runDemo } from "../scenario";
 import { approve, execute } from "../agents/executor";
 import { agentMode } from "../agents/openrouter";
 import { ledgerBackend, loadIncident, syncIncident } from "../ledger/remote";
-import type { RemoteIncident } from "../ledger/payload";
+import { ledgerFromRemote, type RemoteIncident } from "../ledger/payload";
 import type { DeskRound, DeskView, DeskWebhook } from "./types";
 
 const INTENT_ID = "intent_inv2291";
@@ -207,11 +207,35 @@ function viewFromRemote(remote: RemoteIncident): DeskView | null {
     transfersCreated: paid ? retrySends : null,
     conversionsCreated: paid ? conversionSends : null,
     ledgerLabel: "Convex",
-    warning: "Loaded from the ledger. This process has not sent a payment.",
+    warning: paid
+      ? "Loaded from the ledger. This process has not sent a payment."
+      : "Loaded from the ledger. Nothing here is waiting for a tap. Run the planner for a fresh plan.",
     canPlan: !paid,
     canApprove: false,
     canReplay: false,
   });
+}
+
+/** A pending decision in Convex outlives the process. Rebuild a session that can still take the tap.
+ *  The mock is told about the quote the plan already holds, as Airwallex would still have it. */
+function hydrate(remote: RemoteIncident): Session | null {
+  if (remote.receipts.length || !remote.decisions.some((d) => d.status === "awaiting_human")) return null;
+  const ledger = ledgerFromRemote(remote);
+  if (!ledger) return null;
+  const quotes = ledger.proposals.flatMap((p) => p.actions).flatMap((a) =>
+    a.kind === "fx_conversion"
+      ? [{ quote_id: a.quoteId, buy_currency: a.buyCurrency, sell_currency: a.sellCurrency, buy_amount: a.buyAmount, valid_to_at: a.quoteValidToAt }]
+      : []);
+  const warning = "Restored from the ledger after a restart. The decision is still waiting for a tap.";
+  return { awx: createMockClient({ quotes }), ledger, phase: "review", ledgerKind: "convex", warning, error: null, replayed: false, now: fx.T0 };
+}
+
+async function restoreFromLedger(): Promise<Session | null> {
+  if (ledgerBackend() !== "convex") return null;
+  const remote = await loadIncident(INTENT_ID);
+  const restored = remote ? hydrate(remote) : null;
+  if (restored) store.session = restored;
+  return restored;
 }
 
 async function project(s: Session) {
@@ -236,7 +260,7 @@ export async function openPlan() {
 }
 
 export async function approveSession(who: string) {
-  const current = store.session;
+  const current = store.session ?? (await restoreFromLedger());
   if (!current) throw new Error("Plan the incident before approving.");
   if (current.phase === "paid") return;
   const decision = current.phase === "failed"
@@ -287,6 +311,11 @@ export async function getDeskView(): Promise<DeskView> {
     try {
       const remote = await loadIncident(INTENT_ID);
       if (remote) {
+        const restored = hydrate(remote);
+        if (restored) {
+          store.session = restored;
+          return viewFromSession(restored);
+        }
         const view = viewFromRemote(remote);
         if (view) return view;
       }
