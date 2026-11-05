@@ -121,12 +121,19 @@ export async function execute(ledger: MemoryLedger, awx: AirwallexClient, decisi
     const ex = { id: ledger.id("exe"), decisionId: decision.id, requestId, actionKind: a.kind, result, airwallexId, response, createdAt: now };
     ledger.executions.push(ex);
     try {
-      if (!busy) await finishRequest({ ...ex, owner });
+      if (!busy) {
+        const recorded = await finishRequest({ ...ex, owner });
+        if (recorded === "rejected") {
+          ex.result = "error";
+          ex.airwallexId = undefined;
+          ex.response = { message: "The shared ledger kept another worker's outcome for this request_id." };
+        }
+      }
     } catch {
       /* The local row and the Airwallex lookup still block a second send. */
     }
     out.push(ex);
-    if (result === "error") break; // never pay after a failed funding step
+    if (ex.result === "error") break; // never pay after a failed funding step
   }
   return out;
 }

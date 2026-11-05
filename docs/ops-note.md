@@ -133,6 +133,6 @@ To turn a piece on later, set the name as a Runtime Secret or in the server env.
 
 - Live model: set `OPENROUTER_API_KEY`, `OPENROUTER_MODEL_PLANNER`, and `OPENROUTER_MODEL_WRINGER`. Leave `AGENT_MODE` unset. `AGENT_MODE=stub` keeps fixtures even if the key is present. The filed moves and the hard Wringer checks stay in code either way.
 - Webhook ingest: set `AIRWALLEX_WEBHOOK_SECRET` on the route, and set `CONVEX_URL` plus `TWO_KEY_INGEST_SECRET` (same secret in the Convex deployment env) to store events in Convex. Missing either Convex value keeps the in-memory webhook store.
-- Ledger claim and receipt sync: the same `CONVEX_URL` and `TWO_KEY_INGEST_SECRET` pair. `npx convex dev` must be run so the deployment matches `convex/schema.ts`. Until then the desk uses `MemoryLedger`, which is enough for `npm run check` and for one local `npm run dev` process.
+- Ledger claim and receipt sync: the same `CONVEX_URL` and `TWO_KEY_INGEST_SECRET` pair. `npx convex dev` must be run so the deployment matches `convex/schema.ts`. Until then the desk uses `MemoryLedger`, which is enough for `npm run check` and for one local `npm run dev` process. Every public function in `convex/ledger.ts`, including the webhook `timeline` read, checks that secret before touching the database. There is no anonymous Convex read of incidents or webhook payloads. The fixture desk stays available when Convex is unset.
 
 Sandbox calls stay on `AIRWALLEX_MODE=live npm run live-smoke`, which refuses any base URL other than `https://api.sandbox.airwallex.com`.

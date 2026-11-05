@@ -91,9 +91,78 @@ describe("execution claim with an owner and a lease", () => {
 
   it("never downgrades a finished success", () => {
     expect(finishDecision({ result: "ok" }, { result: "error", owner: "A" })).toBe("keep");
+    expect(finishDecision({ result: "ok", owner: "A" }, { result: "ok", owner: "B" })).toBe("keep");
     expect(finishDecision({ result: "already_done" }, { result: "claimed", owner: "A" })).toBe("keep");
+    expect(finishDecision({ result: "already_done", owner: "A" }, { result: "ok", owner: "A" })).toBe("keep");
     expect(finishDecision({ result: "claimed", owner: "A" }, { result: "error" })).toBe("keep");
+    expect(finishDecision({ result: "claimed", owner: "B" }, { result: "ok", owner: "A" })).toBe("keep");
     expect(finishDecision(null, { result: "ok" })).toBe("insert");
+  });
+
+  it("renews the same owner's lease, and that owner can finish after the old lease time", async () => {
+    const { ctx, rows } = fakeCtx();
+    const t0 = 1_000;
+    expect(await claimHandler(ctx, { ...slot, owner: "A" }, t0)).toEqual({ claimed: true, resume: false });
+    expect(await claimHandler(ctx, { ...slot, owner: "A" }, t0 + 1_000)).toEqual({ claimed: true, resume: true });
+    expect(rows[0]).toMatchObject({ owner: "A", leaseUntil: t0 + 1_000 + CLAIM_LEASE_MS });
+    expect(await claimHandler(ctx, { ...slot, owner: "B" }, t0 + 1_000 + CLAIM_LEASE_MS - 1)).toEqual({ claimed: false, reason: "busy" });
+    expect(await finishHandler(ctx, finish("ok", "A", { airwallexId: "tr_renewed", createdAt: t0 + CLAIM_LEASE_MS + 5 }))).toEqual({ wrote: "patch" });
+    expect(rows[0]).toMatchObject({ result: "ok", owner: "A", airwallexId: "tr_renewed" });
+  });
+
+  it("lets the current owner finish after expiry when nobody has taken the row", async () => {
+    const { ctx, rows } = fakeCtx();
+    const t0 = 1_000;
+    await claimHandler(ctx, { ...slot, owner: "A" }, t0);
+    expect(await finishHandler(ctx, finish("ok", "A", { airwallexId: "tr_late_owner", createdAt: t0 + CLAIM_LEASE_MS + 1 }))).toEqual({ wrote: "patch" });
+    expect(rows[0]).toMatchObject({ result: "ok", owner: "A", airwallexId: "tr_late_owner" });
+  });
+
+  it("drops a paused owner's late ok and error after takeover, then keeps the new owner's success", async () => {
+    const { ctx, rows } = fakeCtx();
+    const t0 = 1_000;
+    expect(await claimHandler(ctx, { ...slot, owner: "A" }, t0)).toEqual({ claimed: true, resume: false });
+    const expired = t0 + CLAIM_LEASE_MS;
+    expect(await claimHandler(ctx, { ...slot, owner: "B" }, expired)).toEqual({ claimed: true, resume: true });
+    expect(rows[0]).toMatchObject({ result: "claimed", owner: "B", leaseUntil: expired + CLAIM_LEASE_MS });
+
+    expect(await finishHandler(ctx, finish("ok", "A", { airwallexId: "tr_stale", response: { id: "tr_stale" }, createdAt: expired + 10 }))).toEqual({ wrote: "kept" });
+    expect(await finishHandler(ctx, finish("error", "A", { response: { message: "stale failure" }, createdAt: expired + 11 }))).toEqual({ wrote: "kept" });
+    expect(rows[0]).toMatchObject({ result: "claimed", owner: "B", response: { state: "claimed" } });
+    expect(rows[0].airwallexId).toBeUndefined();
+
+    expect(await finishHandler(ctx, finish("ok", "B", { airwallexId: "tr_owner", response: { id: "tr_owner", status: "PROCESSING" }, createdAt: expired + 20 }))).toEqual({ wrote: "patch" });
+    expect(await finishHandler(ctx, finish("error", "A", { createdAt: expired + 21 }))).toEqual({ wrote: "kept" });
+    expect(await finishHandler(ctx, finish("ok", "C", { airwallexId: "tr_other", response: { id: "tr_other" }, createdAt: expired + 22 }))).toEqual({ wrote: "kept" });
+    expect(await finishHandler(ctx, finish("already_done", "A", { airwallexId: "tr_replay", response: { ledger: "request_id already claimed" }, createdAt: expired + 30 }))).toEqual({ wrote: "replay" });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      result: "ok",
+      owner: "B",
+      airwallexId: "tr_owner",
+      response: { id: "tr_owner", status: "PROCESSING" },
+      replays: 1,
+      lastReplayAt: expired + 30,
+    });
+    expect(await claimHandler(ctx, { ...slot, owner: "C" }, expired + 40)).toEqual({ claimed: false, reason: "done" });
+  });
+
+  it("does not mark a send paid when the shared ledger keeps another outcome", async () => {
+    setLedgerBackendForTests("convex");
+    setLedgerApiForTests({
+      upsert: async () => ({}),
+      claim: async () => ({ claimed: true }),
+      finish: async (args) => ({ wrote: args.actionKind === "retry_transfer" ? "kept" : "patch" }),
+      load: async () => null,
+    });
+    const awx = createMockClient();
+    const res = await runDemo(awx, { approver: "joe" });
+    const transfer = res.executions.find((e) => e.actionKind === "retry_transfer");
+    expect(awx.calls.createTransfer).toBe(1);
+    expect(transfer?.result).toBe("error");
+    expect(transfer?.airwallexId).toBeUndefined();
+    expect(transfer?.response).toMatchObject({ message: expect.stringMatching(/another worker/i) });
+    expect(res.executions.some((e) => e.actionKind === "retry_transfer" && e.result === "ok")).toBe(false);
   });
 
   it("a busy slot sends nothing and writes nothing back", async () => {

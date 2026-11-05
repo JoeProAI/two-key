@@ -77,13 +77,15 @@ export async function takeRequestSlot(
   return res.reason === "busy" ? "busy" : "taken";
 }
 
+/** `local` is the in-memory ledger. `recorded` means Convex accepted the outcome or counted a replay.
+ *  `rejected` means the row was left as another owner or an earlier success (`wrote: "kept"`). */
 export async function finishRequest(
   ex: { id: string; decisionId: string; requestId: string; actionKind: string; result: string; airwallexId?: string; owner?: string; response: unknown; createdAt: number },
   env: NodeJS.ProcessEnv = process.env,
-): Promise<void> {
-  if (ledgerBackend(env) !== "convex") return;
+): Promise<"local" | "recorded" | "rejected"> {
+  if (ledgerBackend(env) !== "convex") return "local";
   const api = await apiFor(env);
-  await api.finish({
+  const wrote = await api.finish({
     secret: env.TWO_KEY_INGEST_SECRET ?? "",
     key: ex.id,
     decisionKey: ex.decisionId,
@@ -94,7 +96,8 @@ export async function finishRequest(
     owner: ex.owner,
     response: ex.response,
     createdAt: ex.createdAt,
-  });
+  }) as { wrote?: string } | null;
+  return wrote?.wrote === "kept" ? "rejected" : "recorded";
 }
 
 export { claimDecision };

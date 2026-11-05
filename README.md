@@ -36,7 +36,7 @@ npm run dev                    # desk UI for the $40k incident. Open the printed
 | `APPROVAL_THRESHOLD_USD` | server | Human tap at or above this amount (default 10000) |
 | `NEXT_PUBLIC_CONVEX_URL` | client | Written by `npx convex dev` |
 | `CONVEX_URL` | server | Convex deployment URL for the webhook route (falls back to `NEXT_PUBLIC_CONVEX_URL`) |
-| `TWO_KEY_INGEST_SECRET` | server and Convex env, Runtime Secret | Guards public ledger mutations (`ingestWebhook`, `upsertIncident`, `claimExecutionPublic`, `finishExecution`, `getIncident`). Unset means webhooks and the desk stay on the in-memory store. |
+| `TWO_KEY_INGEST_SECRET` | server and Convex env, Runtime Secret | Guards every public ledger function (`ingestWebhook`, `timeline`, `upsertIncident`, `claimExecutionPublic`, `finishExecution`, `getIncident`). Unset means webhooks and the desk stay on the in-memory store. |
 | `DESK_APPROVE_SECRET` | server, Runtime Secret | Desk key. When set, plan, approve, replay and the Convex ledger view need it. The desk asks for it once and keeps an httpOnly cookie (an HMAC of the key, not the key). Required when Convex is configured: without it the shared desk stays closed. Unset with no Convex means the public fixture demo. |
 
 Never give a secret a `NEXT_PUBLIC_` prefix. `tests/key-leak.test.ts` and `scripts/leak-scan.mjs` fail the check if a key name or value reaches client code or build output.
@@ -60,6 +60,8 @@ Never give a secret a `NEXT_PUBLIC_` prefix. `tests/key-leak.test.ts` and `scrip
 - The executor re-reads the original transfer right before paying. It refuses to pay if the transfer isn't CANCELLED or FAILED.
 - The LLM can add objections but can't remove the deterministic Wringer checks. A model objection whose `check` matches a hard check is dropped. A failed model call leaves the hard checks in place. The filed moves, amounts, and `request_id`s always come from code, including when the live path runs. Round 1 stays the fixture plan so the double-pay block still shows.
 - Funding runs before paying (defer, then FX, then transfer). The run stops at the first error.
+- A Convex execution row is finished only by the owner currently named on it. `ok` and `already_done` stay put, including the provider id. A replay adds a count. Lease expiry lets a second worker claim the row; the first worker's later `ok` or `error` does not replace it. The provider can still be in flight when a lease expires. Airwallex `request_id` lookup is the backstop, and this repo has not proved that window against a live host.
+- Every public function in `convex/ledger.ts` checks `TWO_KEY_INGEST_SECRET` before it reads or writes. That includes `timeline`. The mock desk with no Convex deployment does not use those functions.
 - A decision waiting on a human tap expires after 4 hours (`APPROVAL_TIMEOUT_MS` in fixtures). A tap after that is refused and the planner must start over.
 
 ## Desk

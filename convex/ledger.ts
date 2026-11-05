@@ -1,7 +1,7 @@
 // Convex functions for the ledger. Uses the generic builders so the repo typechecks before
 // `npx convex dev` generates convex/_generated. Swap to "./_generated/server" after setup.
 import { internalMutationGeneric, mutationGeneric, queryGeneric } from "convex/server";
-import type { GenericMutationCtx, GenericDataModel } from "convex/server";
+import type { GenericMutationCtx, GenericQueryCtx, GenericDataModel } from "convex/server";
 import type { GenericId, Value } from "convex/values";
 import { v } from "convex/values";
 import { CLAIM_LEASE_MS, claimDecision, finishDecision } from "../lib/ledger/claim";
@@ -41,11 +41,18 @@ export const ingestWebhookInternal = internalMutationGeneric({
   handler: (ctx, a) => ingestHandler(ctx, a, Date.now()),
 });
 
-/** Ordered by created_at, not arrival. */
+/** Ordered by created_at, not arrival. The payload is the Airwallex notification, so this is not a public read.
+ *  Same TWO_KEY_INGEST_SECRET as the other public ledger functions. A wrong secret fails before the query. */
+export async function timelineHandler(ctx: GenericQueryCtx<GenericDataModel>, objectId: string) {
+  return ctx.db.query("webhookEvents").withIndex("by_object_created", (q) => q.eq("objectId", objectId)).collect();
+}
+
 export const timeline = queryGeneric({
-  args: { objectId: v.string() },
-  handler: (ctx, { objectId }) =>
-    ctx.db.query("webhookEvents").withIndex("by_object_created", (q) => q.eq("objectId", objectId)).collect(),
+  args: { secret: v.string(), objectId: v.string() },
+  handler: async (ctx, { secret, objectId }) => {
+    assertIngestSecret(secret);
+    return timelineHandler(ctx, objectId);
+  },
 });
 
 type ExecRow = { _id: GenericId<"executions">; result?: string; requestId?: string; owner?: string; leaseUntil?: number; replays?: number };
@@ -102,6 +109,7 @@ export const claimExecutionPublic = mutationGeneric({
   args: { secret: v.string(), decisionId: v.string(), requestId: v.string(), actionKind: v.string(), owner: v.string() },
   handler: async (ctx, { secret, ...a }) => {
     assertIngestSecret(secret);
+    // `now` is the server clock. A client cannot rewind a lease by passing a timestamp.
     return claimHandler(ctx, a);
   },
 });
@@ -123,9 +131,9 @@ type FinishArgs = {
   result: "ok" | "already_done" | "error" | "claimed"; airwallexId?: string; owner?: string; response: Value; createdAt: number;
 };
 
-/** Write the outcome of a claimed slot. A finished ok / already_done row is not downgraded, and only the
- *  owner of a live claim can turn it into an error. A replay that finds the request_id already done keeps
- *  the stored result, response and airwallexId and bumps `replays`. */
+/** Write the outcome of a claimed slot. A finished ok / already_done row is not replaced, including by a
+ *  later ok. Only the current owner of a claimed or error row may finish it. A replay bumps `replays`
+ *  and leaves the stored result, response, and airwallexId. */
 export async function finishHandler(ctx: GenericMutationCtx<GenericDataModel>, ex: FinishArgs) {
   const prior = await execByRequestId(ctx, ex.requestId);
   const verdict = finishDecision(priorOf(prior), ex);
