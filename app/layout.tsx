@@ -1,9 +1,23 @@
 import type { ReactNode } from "react";
-import { Archivo, IBM_Plex_Mono } from "next/font/google";
+import { IBM_Plex_Mono, IBM_Plex_Sans, Newsreader } from "next/font/google";
 import "./globals.css";
 
-const display = Archivo({ subsets: ["latin"], variable: "--face-display", weight: ["500", "700", "800"] });
-const mono = IBM_Plex_Mono({ subsets: ["latin"], variable: "--face-mono", weight: ["400", "500"] });
+const display = Newsreader({
+  subsets: ["latin"],
+  variable: "--face-display",
+  weight: ["500", "600", "700"],
+  style: ["normal", "italic"],
+});
+const body = IBM_Plex_Sans({
+  subsets: ["latin"],
+  variable: "--face-body",
+  weight: ["400", "500", "600"],
+});
+const mono = IBM_Plex_Mono({
+  subsets: ["latin"],
+  variable: "--face-mono",
+  weight: ["400", "500"],
+});
 
 export const metadata = {
   title: "Two-Key | INV-2291",
@@ -12,7 +26,7 @@ export const metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={`${display.variable} ${mono.variable}`}>
+    <html lang="en" className={`${display.variable} ${body.variable} ${mono.variable}`}>
       <body>{children}</body>
     </html>
   );
