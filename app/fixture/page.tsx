@@ -19,6 +19,7 @@ export default async function FixturePage({ searchParams }: { searchParams: Prom
   return (
     <main>
       <nav className="beats" aria-label="Fixture beats">
+        <span className="beats-label">Fixture</span>
         {BEATS.map((item) => (
           <a key={item.id} href={`/fixture?beat=${item.id}`} aria-current={item.id === beat ? "page" : undefined}>{item.label}</a>
         ))}

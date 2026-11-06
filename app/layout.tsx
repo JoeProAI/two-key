@@ -1,20 +1,18 @@
 import type { ReactNode } from "react";
-import { Fraunces, IBM_Plex_Mono, IBM_Plex_Sans, Syne } from "next/font/google";
+import { Archivo, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 
-const display = Syne({ subsets: ["latin"], variable: "--face-display", weight: ["600", "700"] });
-const figure = Fraunces({ subsets: ["latin"], variable: "--face-figure" });
-const body = IBM_Plex_Sans({ subsets: ["latin"], variable: "--face-body", weight: ["400", "500"] });
-const mono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500"], variable: "--face-mono" });
+const display = Archivo({ subsets: ["latin"], variable: "--face-display", weight: ["500", "700", "800"] });
+const mono = IBM_Plex_Mono({ subsets: ["latin"], variable: "--face-mono", weight: ["400", "500"] });
 
 export const metadata = {
-  title: "Two-Key · INV-2291",
-  description: "Payment incident desk. One plan, one tap, one receipt.",
+  title: "Two-Key | INV-2291",
+  description: "Payment incident desk for INV-2291. One plan, one tap, one receipt.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={`${display.variable} ${figure.variable} ${body.variable} ${mono.variable}`}>
+    <html lang="en" className={`${display.variable} ${mono.variable}`}>
       <body>{children}</body>
     </html>
   );

@@ -82,11 +82,11 @@ Never give a secret a `NEXT_PUBLIC_` prefix. `tests/key-leak.test.ts` and `scrip
 
 The ops desk at `/` is the same story with the tap. When `DESK_APPROVE_SECRET` is unset and Convex is unset, anyone can run the local mock. When the key is set, plan, approve, replay, and the Convex incident need the cookie. A wrong key or a missing cookie stays on the fixture incident. The pay control stays off while the Wringer key is open.
 
-The spine on the sheet is the receipt: request, cash, plan, Wringer, approval, execution, balances, replay. Each station links to that evidence. A failed send does not get a paid receipt. A tap is refused if the cash evidence changed after the plan was filed. If the shared ledger keeps another worker's row, this desk does not claim that provider call was undone.
+The desk is a control panel. The incident plate keeps the failed payment, both keys, the one action, and the balances in view. The evidence chain selects one step: request, cash, plan, Wringer, approval, execution, balances, or replay. That step shows its request id, claim, and result. Proposed actions sit next to executed rows. Raw receipt lines stay in the details, and the download is the redacted pack. A failed send does not get a paid receipt. A tap is refused if the cash evidence changed after the plan was filed. If the shared ledger keeps another worker's row, this desk does not claim that provider call was undone.
 
 The desk does not call the live Airwallex host. The live client refuses any host other than `api.sandbox.airwallex.com`. `lib/airwallex/corridor.ts` describes the sandbox steps and does not send. Missing credential names come back from that status check. No id is invented.
 
-The UI follows `docs/frontend-design-SKILL.md`. The two-key rail is the control: the planner key seats when a plan is filed, the Wringer key seats only when the latest round has no block, and the tap stays disabled until both are seated.
+The UI follows `docs/frontend-design-SKILL.md`. The planner key seats when a plan is filed. The Wringer key seats only when the latest round has no block. The tap stays off until both are seated. Selecting a step does not call a provider.
 
 ## What is still unset for a live demo
 
