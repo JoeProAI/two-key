@@ -192,8 +192,12 @@ export const SCENARIOS = {
       },
     };
     writeFileSync(`${dir}/identity.json`, JSON.stringify(identity, null, 2));
-    mkdirSync("docs/shots", { recursive: true });
-    writeFileSync("docs/shots/replay-identity.json", JSON.stringify(identity, null, 2));
+    // Vitest runs every scenario, including this one. Writing the judge file here
+    // would replace the evidence command's ids with whichever test process ran last.
+    if (process.env.VITEST !== "true") {
+      mkdirSync("docs/shots", { recursive: true });
+      writeFileSync("docs/shots/replay-identity.json", JSON.stringify(identity, null, 2));
+    }
     return { awx, ledger: first.ledger, receipt: { ...first.receipt, lines }, replayProof: second };
   },
   "stale-quote": async () => runStaleQuoteDemo({ approver: "joe" }),

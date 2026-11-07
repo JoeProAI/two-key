@@ -4,21 +4,21 @@ import type { DeskStation, DeskView } from "./types";
 
 export function poster(view: DeskView): { word: string; tone: "fail" | "ok" | "wait" | "lock"; line: string } {
   if (view.locked) return { word: "Locked", tone: "lock", line: view.lockNote ?? "The ledger stays closed." };
-  if (view.replayed) return { word: "Same payment", tone: "ok", line: "No new send. The provider ids match the recorded payment." };
+  if (view.replayed) return { word: "Result checked", tone: "ok", line: "The recorded ids matched. This check did not create a payment." };
   if (view.phase === "failed") {
     return { word: "Not paid", tone: "fail", line: view.error ?? "The approved plan did not finish. Nothing is marked paid." };
   }
-  if (view.phase === "paid") return { word: "Paid once", tone: "ok", line: "One supplier payment was sent." };
+  if (view.phase === "paid") return { word: "Simulated", tone: "ok", line: "A simulated payment is recorded. This is not a live provider payment." };
   if (view.blockCount > 0) {
     const noun = view.blockCount === 1 ? "objection is" : "objections are";
     return { word: "Blocked", tone: "fail", line: `${view.blockCount} ${noun} stopping a tap. Nothing has been sent.` };
   }
   const latest = view.rounds.at(-1);
   if (latest?.decision === "awaiting_human") {
-    return { word: "Waiting", tone: "wait", line: "The latest plan is clear. Nothing has been sent." };
+    return { word: "Needs consent", tone: "wait", line: "The checker is clear. Clearance is not consent. Nothing has been sent." };
   }
   if (!view.plannerSeated) {
-    return { word: "Not planned", tone: "wait", line: `${view.amount} ${view.currency} cancelled. ${view.failure}` };
+    return { word: "Not planned", tone: "wait", line: "No cash plan is filed. Nothing has been sent." };
   }
   return { word: "In review", tone: "wait", line: "The plan is on the desk. Nothing has been sent." };
 }
@@ -28,14 +28,14 @@ export function decisionCopy(view: DeskView): { accent: string; rest: string } {
     return { accent: "Desk locked.", rest: view.lockNote ?? "The ledger stays closed." };
   }
   if (view.replayed) {
-    return { accent: "Same payment.", rest: "No new send. The provider ids match the recorded payment." };
+    return { accent: "Result checked.", rest: "The recorded ids matched. This check did not create a payment." };
   }
   if (view.phase === "failed") {
     const detail = view.error ?? "The approved plan did not finish. Nothing is marked paid.";
     return { accent: "Not paid.", rest: `${detail} Balances are unchanged.` };
   }
   if (view.phase === "paid") {
-    return { accent: "Paid once.", rest: "One supplier payment was sent. The balances below are the result." };
+    return { accent: "Simulated payment recorded.", rest: "This is a mock result. It is not a live provider payment." };
   }
   if (view.blockCount > 0) {
     const noun = view.blockCount === 1 ? "objection is" : "objections are";
@@ -87,8 +87,8 @@ export function approvalLine(view: DeskView): string {
 }
 
 export function resultLine(view: DeskView): string {
-  if (view.replayed) return "Replayed. No new send.";
-  if (view.phase === "paid") return "Paid once.";
+  if (view.replayed) return "Recorded result checked. No new payment.";
+  if (view.phase === "paid") return "Simulated payment recorded.";
   if (view.phase === "failed") return "Not marked paid.";
   if (view.executions.some((row) => row.result === "error")) return "A send failed.";
   return "Not sent.";
@@ -113,7 +113,7 @@ export function stationNote(station: DeskStation): string {
     open: "Open",
     already_done: "Same ids",
     "No block": "No objection",
-    Recorded: "Sent",
+    Recorded: "Simulated",
     "No plan filed": "No plan",
   };
   return words[station.detail] ?? station.detail;
@@ -126,6 +126,48 @@ export function tabLabel(id: string, fallback: string): string {
   return fallback;
 }
 
+export function stateLine(view: DeskView): { word: string; tone: "fail" | "ok" | "wait" | "lock"; detail: string } {
+  const lead = poster(view);
+  return { word: lead.word, tone: lead.tone, detail: lead.line };
+}
+
+export function nextCue(view: DeskView): { text: string; href: string } {
+  if (view.locked) return { text: "Next: enter the desk key. The planner stays closed.", href: "#authorization" };
+  if (view.error && view.phase !== "failed") return { text: "Next: read why the tap was refused. This page does not send.", href: "#authorization" };
+  if (view.replayed) return { text: "Next: read the checked ids. There is no further payment step.", href: "#receipt" };
+  if (view.phase === "paid" && view.canReplay) return { text: "Next: verify the recorded mock result. That check does not pay again.", href: "#receipt" };
+  if (view.phase === "paid") return { text: "A simulated payment is recorded. This page cannot pay again.", href: "#receipt" };
+  if (view.phase === "failed") return { text: "Next: read why the simulation stopped. Nothing is marked paid.", href: "#receipt" };
+  if (view.blockCount > 0) return { text: "Next: read the checker blocks. A tap cannot override them.", href: "#check" };
+  if (view.rounds.at(-1)?.decision === "awaiting_human") return { text: "Next: read every bound term, then the mock approval.", href: "#authorization" };
+  if (!view.plannerSeated) return { text: "Next: file a cash plan. Nothing has been sent.", href: "#cash" };
+  return { text: "Next: read the plan on the desk.", href: "#cash" };
+}
+
+export function rail(view: DeskView): { id: string; label: string; status: string }[] {
+  const latest = view.rounds.at(-1);
+  const human = view.locked
+    ? "Locked"
+    : view.error && view.phase !== "failed"
+      ? "Tap refused"
+    : latest?.decision === "awaiting_human"
+      ? "Needs a tap"
+      : latest?.decision === "approved"
+        ? "Demo label recorded"
+        : latest?.decision === "blocked"
+          ? "Checker stopped it"
+          : latest?.decision === "expired"
+            ? "Expired"
+            : "No plan";
+  return [
+    { id: "incident", label: "Incident", status: "History" },
+    { id: "cash", label: "Cash plan", status: view.rounds.length ? `Round ${latest?.round ?? view.rounds.length}` : "Not filed" },
+    { id: "check", label: "Independent check", status: !view.rounds.length ? "Not run" : view.blockCount ? `${view.blockCount} blocking` : "Clear, not consent" },
+    { id: "authorization", label: "Human authorization", status: human },
+    { id: "receipt", label: "Receipt", status: view.replayed ? "Checked" : view.phase === "paid" ? "Simulated" : view.phase === "failed" ? "Not marked paid" : "None" },
+  ];
+}
+
 export function actionName(kind: string): string {
   if (kind === "fx_conversion") return "Conversion";
   if (kind === "retry_transfer") return "Retry transfer";
@@ -134,8 +176,8 @@ export function actionName(kind: string): string {
 }
 
 export function resultWord(result: string): string {
-  if (result === "ok") return "Sent";
+  if (result === "ok") return "Simulated";
   if (result === "error") return "Failed";
-  if (result === "already_done") return "Already sent";
+  if (result === "already_done") return "Already recorded";
   return result;
 }

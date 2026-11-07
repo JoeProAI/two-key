@@ -2,6 +2,7 @@ import "server-only";
 import { createMockClient } from "../airwallex/mock";
 import * as fx from "../airwallex/fixtures";
 import type { Action } from "../ledger/types";
+import type { Quote } from "../airwallex/types";
 import { MemoryLedger } from "../ledger/memory";
 import { canonicalRetryId } from "../requestId";
 import { reconcileSettled } from "../agents/reconcile";
@@ -88,17 +89,39 @@ function webhookRows(): DeskWebhook[] {
   });
 }
 
-function actionRow(action: Action): DeskRound["actions"][number] {
+function clock(ms: number | undefined): string | undefined {
+  return typeof ms === "number" ? new Date(ms).toISOString() : undefined;
+}
+
+function actionRow(action: Action, quotes?: Map<string, Quote>): DeskRound["actions"][number] {
   if (action.kind === "retry_transfer") {
-    return { kind: "Retry transfer", detail: `${action.currency} ${fmt(action.amount)} once`, requestId: action.requestId };
+    return {
+      kind: "Retry transfer",
+      detail: `${action.currency} ${fmt(action.amount)} once`,
+      requestId: action.requestId,
+      beneficiaryId: action.beneficiaryId,
+    };
   }
   if (action.kind === "fx_conversion") {
-    return { kind: "FX conversion", detail: `Buy ${fmt(action.buyAmount)} ${action.buyCurrency} with ${action.sellCurrency}`, requestId: action.requestId };
+    const quote = action.quoteId ? quotes?.get(action.quoteId) : undefined;
+    return {
+      kind: "FX conversion",
+      detail: `Buy ${fmt(action.buyAmount)} ${action.buyCurrency} with ${action.sellCurrency}`,
+      requestId: action.requestId,
+      quoteId: action.quoteId,
+      quoteValidTo: action.quoteValidToAt,
+      buyAmount: fmt(action.buyAmount),
+      buyCurrency: action.buyCurrency,
+      sellCurrency: action.sellCurrency,
+      clientRate: quote ? String(quote.client_rate) : undefined,
+      sellAmount: quote ? fmt(quote.sell_amount) : undefined,
+      quoteValidFrom: quote?.valid_from_at,
+    };
   }
   return { kind: "Defer payout", detail: `${action.currency} ${fmt(action.amount)} held until ${action.until}`, requestId: `defer:${action.payoutId}` };
 }
 
-function roundsFromLedger(ledger: MemoryLedger): DeskRound[] {
+function roundsFromLedger(ledger: MemoryLedger, quotes?: Map<string, Quote>): DeskRound[] {
   return ledger.proposals
     .filter((p) => p.intentId === INTENT_ID)
     .map((p) => {
@@ -108,10 +131,14 @@ function roundsFromLedger(ledger: MemoryLedger): DeskRound[] {
         summary: p.summary,
         decision: decision?.status ?? "open",
         approvedBy: decision?.humanApprovedBy,
-        actions: p.actions.map(actionRow),
+        approvedAt: clock(decision?.humanApprovedAt),
+        boundDigest: decision?.boundDigest,
+        evidenceDigest: decision?.evidenceDigest,
+        decidedAt: clock(decision?.createdAt),
+        actions: p.actions.map((action) => actionRow(action, quotes)),
         findings: ledger.objections
           .filter((o) => o.proposalId === p.id)
-          .map((o) => ({ check: o.check, severity: o.severity, detail: o.detail })),
+          .map((o) => ({ check: o.check, severity: o.severity, detail: o.detail, at: clock(o.createdAt) })),
       };
     });
 }
@@ -162,7 +189,7 @@ function executionRows(rows: { actionKind: string; requestId: string; result: st
     let note: string | null = null;
     if (body?.providerCall === "issued_outcome_unknown") note = "Outcome unknown. The call was not undone.";
     else if (ex.result === "error") note = typeof body?.message === "string" ? body.message : "Provider error. Not marked paid.";
-    else if (ex.result === "already_done") note = "Same request id. No new send.";
+    else if (ex.result === "already_done") note = "Same request id. No new payment.";
     return { action: ex.actionKind, requestId: ex.requestId, result: ex.result, providerId: ex.airwallexId ?? null, note };
   });
 }
@@ -223,7 +250,7 @@ function baseView(partial: Partial<DeskView> & Pick<DeskView, "phase" | "rounds"
 }
 
 function viewFromSession(s: Session): DeskView {
-  const rounds = roundsFromLedger(s.ledger);
+  const rounds = roundsFromLedger(s.ledger, s.awx.quotes);
   const receipt = s.ledger.receipts.filter((r) => r.intentId === INTENT_ID).at(-1)?.lines ?? null;
   return baseView({
     phase: s.phase,
@@ -263,11 +290,15 @@ function viewFromRemote(remote: RemoteIncident): DeskView | null {
       round: p.round,
       summary: p.summary,
       decision: decision?.status ?? "open",
-      approvedBy: decision?.humanApprovedBy,
-      actions: (p.actions as Action[]).map(actionRow),
-      findings: remote.objections
-        .filter((o) => o.proposalKey === p.key)
-        .map((o) => ({ check: o.check, severity: o.severity, detail: o.detail })),
+        approvedBy: decision?.humanApprovedBy,
+        approvedAt: clock(decision?.humanApprovedAt),
+        boundDigest: decision?.boundDigest,
+        evidenceDigest: decision?.evidenceDigest,
+        decidedAt: clock(decision?.createdAt),
+        actions: (p.actions as Action[]).map((action) => actionRow(action)),
+        findings: remote.objections
+          .filter((o) => o.proposalKey === p.key)
+          .map((o) => ({ check: o.check, severity: o.severity, detail: o.detail, at: clock(o.createdAt) })),
     };
   });
   const paid = remote.receipts.length > 0;

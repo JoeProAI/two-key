@@ -2,12 +2,25 @@ export interface DeskAction {
   kind: string;
   detail: string;
   requestId?: string;
+  /** Present only when the stored action is an FX conversion. */
+  quoteId?: string;
+  quoteValidTo?: string;
+  quoteValidFrom?: string;
+  buyAmount?: string;
+  buyCurrency?: string;
+  sellCurrency?: string;
+  /** From the mock quote object when this process still holds it. Absent means the rate is not on the desk. */
+  clientRate?: string;
+  sellAmount?: string;
+  beneficiaryId?: string;
 }
 
 export interface DeskFinding {
   check: string;
   severity: "block" | "note";
   detail: string;
+  /** Demo clock on the objection, when the ledger stored one. */
+  at?: string;
 }
 
 export interface DeskRound {
@@ -15,6 +28,12 @@ export interface DeskRound {
   summary: string;
   decision: string;
   approvedBy?: string;
+  approvedAt?: string;
+  /** sha256 of the action list, when the decision stored one. */
+  boundDigest?: string;
+  /** sha256 of the cash snapshot the plan was allowed to use. */
+  evidenceDigest?: string;
+  decidedAt?: string;
   actions: DeskAction[];
   findings: DeskFinding[];
 }

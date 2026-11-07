@@ -23,7 +23,7 @@ export function DeskFrame({ children }: { children: ReactNode }) {
   }, []);
   return (
     <OfflineContext.Provider value={offline}>
-      <a className="skip" href="#decision">Skip to the decision</a>
+      <a className="skip" href="#payee">Skip to the payee and amount</a>
       {offline ? (
         <p className="banner" id="offline-note" role="status">
           Offline. This is the last page that loaded. Controls stay off until the browser is back online. The receipt was not changed.

@@ -3,15 +3,12 @@ export default function Missing() {
     <main>
       <header className="mast">
         <p className="brand">Two-Key</p>
-        <p className="where">INV-2291</p>
+        <p className="mock">MOCK. No real money moves.</p>
       </header>
-      <section className="sheet">
-        <div className="mark" data-tone="lock">
-          <h1 className="face ink">Missing page</h1>
-          <div className="cut" aria-hidden="true"><p className="face light">Missing page</p></div>
-        </div>
-        <p className="reason">That page is not on this desk.</p>
-        <p className="actions"><a className="quiet-link" href="/fixture">Open the mock fixture</a></p>
+      <section className="money">
+        <h1>Missing page</h1>
+        <p className="lead">That page is not on this desk.</p>
+        <p className="actions"><a href="/fixture">Open the mock fixture</a></p>
       </section>
     </main>
   );

@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 
-export function CopyId({ id, label }: { id: string; label: string }) {
+export function CopyId({ id, label }: { id: string; label?: string }) {
   const [note, setNote] = useState("");
   return (
     <div className="id-row">
       <p className="id">
-        <span className="id-label">{label}</span>
+        {label ? <span className="id-label">{label}</span> : null}
         <span className="id-value">{id}</span>
       </p>
       <button

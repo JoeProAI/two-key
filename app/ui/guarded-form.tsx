@@ -29,20 +29,22 @@ export function GuardedForm({
 export function ApproverField({ blocked }: { blocked: boolean }) {
   const offline = useOffline();
   const off = blocked || offline;
+  const describedBy = ["approver-note", "key-reason", offline ? "offline-note" : ""].filter(Boolean).join(" ");
   return (
     <>
-      <label htmlFor="approver">Approver</label>
+      <label htmlFor="approver">Demo approver label</label>
       <input
         id="approver"
         name="approver"
         type="text"
         defaultValue="joe"
         maxLength={40}
-        autoComplete="name"
+        autoComplete="off"
         required
-        readOnly={off}
-        aria-describedby={offline ? "key-reason offline-note" : "key-reason"}
+        aria-describedby={describedBy}
+        {...(off ? { readOnly: true } : {})}
       />
+      <p id="approver-note">This is a demo label. It is not authentication.</p>
     </>
   );
 }
@@ -59,8 +61,8 @@ export function DeskKeyField() {
         autoComplete="current-password"
         maxLength={200}
         required
-        readOnly={offline}
         aria-describedby={offline ? "key-reason offline-note" : "key-reason"}
+        {...(offline ? { readOnly: true } : {})}
       />
     </>
   );

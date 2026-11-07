@@ -6,14 +6,32 @@ import { MemoryLedger } from "../ledger/memory";
 import { reconcileSettled } from "../agents/reconcile";
 import { buildReceipt, runDemo } from "../scenario";
 import { buildPack, executionsCsv, gitSha } from "../receipt/pack";
+import { approve } from "../agents/executor";
+import { evidenceDigest } from "../receipt/bind";
+import { WebhookInbox } from "../webhooks/inbox";
+import { applyAvailable } from "../money";
+import type { Action } from "../ledger/types";
 import { presentPublic, publicIncident, renderSession } from "./session";
 import type { DeskView } from "./types";
 
-const BEATS = ["incident", "blocked", "planned", "paid", "replay", "failed"] as const;
+const BEATS = ["incident", "blocked", "planned", "refused", "paid", "replay", "failed"] as const;
 export type FixtureBeat = (typeof BEATS)[number];
 
 export function fixtureBeat(raw: string | undefined): FixtureBeat {
   return BEATS.includes(raw as FixtureBeat) ? raw as FixtureBeat : "incident";
+}
+
+function digestAfterChange(balances: { currency: string; available_amount: number }[], actions: Action[]): string {
+  const inbox = new WebhookInbox();
+  for (const event of fx.demoWebhookDeliveries) inbox.ingest(event);
+  const quote = actions.find((action) => action.kind === "fx_conversion");
+  return evidenceDigest({
+    balances: balances.map((row) => ({ currency: row.currency, available: row.available_amount })),
+    webhookStatus: inbox.status(fx.ORIGINAL_TRANSFER_ID),
+    quoteId: quote?.kind === "fx_conversion" ? quote.quoteId : undefined,
+    reserve: fx.RESERVE_USD,
+    queued: [{ id: fx.queuedPayout.id, amount: fx.queuedPayout.amount }],
+  });
 }
 
 function money(rows: { currency: string; available_amount: number }[]) {
@@ -32,6 +50,25 @@ export async function loadFixture(beat: FixtureBeat): Promise<DeskView> {
     const blocked = await runDemo(awx, { stopOnBlock: true });
     return presentPublic(renderSession({
       awx, ledger: blocked.ledger, phase: "review", ledgerKind: "memory", warning: null, error: null, replayed: false, now: fx.T0, balancesBefore,
+    }), beat);
+  }
+  if (beat === "refused") {
+    const held = await runDemo(awx, {});
+    const proposal = held.rounds.at(-1)?.proposal;
+    const decision = held.awaiting;
+    let error = "This beat could not show a refused tap.";
+    if (proposal && decision) {
+      const usd = awx.balances.find((row) => row.currency === "USD");
+      if (usd) applyAvailable(usd, 1);
+      try {
+        approve(held.ledger, decision.id, "joe", fx.T0, Infinity, digestAfterChange(awx.balances, proposal.actions));
+        error = "The tap was accepted. This beat failed to show a refusal.";
+      } catch (err) {
+        error = err instanceof Error ? err.message : "The tap was refused.";
+      }
+    }
+    return presentPublic(renderSession({
+      awx, ledger: held.ledger, phase: "review", ledgerKind: "memory", warning: null, error, replayed: false, now: fx.T0, balancesBefore,
     }), beat);
   }
   if (beat === "failed") {
@@ -101,7 +138,7 @@ export async function fixturePack(beat: FixtureBeat = "paid") {
   }
   const awx = createMockClient();
   const before = awx.balances.map((b) => ({ currency: b.currency, available: b.available_amount }));
-  const approver = beat === "incident" || beat === "planned" ? undefined : "joe";
+  const approver = beat === "incident" || beat === "planned" || beat === "blocked" || beat === "refused" ? undefined : "joe";
   const res = beat === "incident" ? await runDemo(awx, {}) : await runDemo(awx, { approver });
   return buildPack({
     ledger: res.ledger,

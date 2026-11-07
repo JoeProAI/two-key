@@ -55,7 +55,7 @@
       }
     ],
     "quote": {
-      "id": "ab78884a-b743-4585-bc1c-98ba8f56a24c",
+      "id": "0313bd1b-d424-41cc-8a60-2ffb9e56b8c3",
       "validTo": "2026-11-02T14:15:00+0000",
       "buyAmount": 28000,
       "sellCurrency": "EUR"
@@ -126,7 +126,7 @@
           "buyCurrency": "USD",
           "sellCurrency": "EUR",
           "buyAmount": 28000,
-          "quoteId": "ab78884a-b743-4585-bc1c-98ba8f56a24c",
+          "quoteId": "0313bd1b-d424-41cc-8a60-2ffb9e56b8c3",
           "quoteValidToAt": "2026-11-02T14:15:00+0000",
           "requestId": "e57286ec-aede-36bc-62c1-ed72e395d09d"
         },
@@ -161,8 +161,8 @@
       ],
       "decision": "approved",
       "approvedBy": "joe",
-      "boundDigest": "110daaf63653c1ef8f2d4a5bd3cf8a2a03665b6875b72bc6131886608da07476",
-      "evidenceDigest": "54292bf709ca2d3383058e451489c49279cfd488bf71e6bae3fcae3d565e455c"
+      "boundDigest": "523f8431ae7f7389734bfd0d832aa1aee0752e66a20d9ce59d58285cb16fae5b",
+      "evidenceDigest": "6741593117c56f6e367ef5d88912b93a707b176ea9b586d9f3ee33b7d9ff94d4"
     }
   ],
   "executions": [
@@ -178,7 +178,7 @@
       "action": "fx_conversion",
       "requestId": "e57286ec-aede-36bc-62c1-ed72e395d09d",
       "result": "ok",
-      "providerId": "92eff2f7-6486-4472-a5da-485ce11ef282",
+      "providerId": "e7212b6d-2c0d-48ef-ba38-0227a39e8fdf",
       "providerCall": "recorded",
       "note": null
     },
@@ -186,7 +186,7 @@
       "action": "retry_transfer",
       "requestId": "c624d34b-1b4c-cbfb-723a-e3f5d031cd83",
       "result": "ok",
-      "providerId": "7810900f-774a-4b36-a123-db03cffc85e4",
+      "providerId": "f4d82a7e-f4ea-4b62-b33b-afa3a354cd57",
       "providerCall": "recorded",
       "note": null
     }
@@ -228,8 +228,8 @@
     "  Wringer note [out_of_order_webhook]: Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}.",
     "  Decision: approved, approved by joe",
     "  Executed defer_payout request_id=defer:queued_marketing_7000: ok",
-    "  Executed fx_conversion request_id=e57286ec-aede-36bc-62c1-ed72e395d09d: ok (92eff2f7-6486-4472-a5da-485ce11ef282)",
-    "  Executed retry_transfer request_id=c624d34b-1b4c-cbfb-723a-e3f5d031cd83: ok (7810900f-774a-4b36-a123-db03cffc85e4)"
+    "  Executed fx_conversion request_id=e57286ec-aede-36bc-62c1-ed72e395d09d: ok (e7212b6d-2c0d-48ef-ba38-0227a39e8fdf)",
+    "  Executed retry_transfer request_id=c624d34b-1b4c-cbfb-723a-e3f5d031cd83: ok (f4d82a7e-f4ea-4b62-b33b-afa3a354cd57)"
   ],
   "note": "MOCK FIXTURE. No live money moved. transferCalls and conversionCalls count attempts. transfersSettled and conversionsSettled count objects this mock stored. In this mock an accepted create settles the wallet immediately, pending and reserved stay 0, and total equals available plus those. The 10000 USD floor is a Two-Key rule, not reserved_amount. This is not a live Airwallex balance claim."
 }

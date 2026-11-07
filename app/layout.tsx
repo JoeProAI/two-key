@@ -2,14 +2,14 @@ import type { ReactNode } from "react";
 import localFont from "next/font/local";
 import "./globals.css";
 
-const display = localFont({
-  src: "./fonts/Anton-Regular.ttf",
-  variable: "--face-display",
-  weight: "400",
+const label = localFont({
+  src: "./fonts/BarlowCondensed-SemiBold.ttf",
+  variable: "--face-label",
+  weight: "600",
   display: "swap",
 });
 const body = localFont({
-  src: "./fonts/Figtree-Variable.ttf",
+  src: "./fonts/IBMPlexSans-Variable.ttf",
   variable: "--face-body",
   weight: "400 700",
   display: "swap",
@@ -30,7 +30,7 @@ export const metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={`${display.variable} ${body.variable} ${mono.variable}`}>
+    <html lang="en" className={`${label.variable} ${body.variable} ${mono.variable}`}>
       <body>{children}</body>
     </html>
   );

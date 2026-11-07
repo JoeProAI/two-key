@@ -73,7 +73,7 @@ A second `npm run demo` on a client that already has the live retry does not rep
 
 ## Public page
 
-`/fixture` is MOCK FIXTURE and read only. It does not take a desk key and it does not query Convex. Beats: `incident`, `blocked` (round 1 only, nothing sent), `planned`, `failed`, `paid`, `replay`. Download `GET /fixture/receipt`. The ops desk at `/` stays locked when `DESK_APPROVE_SECRET` is set.
+`/fixture` is a mock fixture and read only. It does not take a desk key and it does not query Convex. Beats: `incident`, `blocked` (round 1 only, nothing sent), `planned`, `refused` (cash snapshot changed, tap refused, nothing executed), `failed`, `paid` (simulated result), `replay` (recorded ids checked, no new payment). Download `GET /fixture/receipt`. The ops desk at `/` stays locked when `DESK_APPROVE_SECRET` is set. Unknown and partial completion stay matrix rows. They are not extra fixture beats.
 
 ## Not proved here
 
