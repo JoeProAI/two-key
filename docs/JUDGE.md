@@ -2,7 +2,7 @@
 
 Measured on 2026-11-07 from this working tree, mock mode, no model key, no Convex, no Airwallex call.
 
-`npm run check`: lint, typecheck, 110 tests, leak-scan clean (37 client files, 12 needles), Next.js 15.5.27 build. No skipped tests.
+`npm run check`: lint, typecheck, 110 tests, leak-scan clean (26 client files, 12 needles), Next.js 15.5.27 build. No skipped tests. The faces are files in `app/fonts`, so the production build does not download them.
 
 ## 90 seconds
 

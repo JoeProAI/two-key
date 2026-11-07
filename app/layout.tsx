@@ -1,21 +1,26 @@
 import type { ReactNode } from "react";
-import { Anton, Figtree, IBM_Plex_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 
-const display = Anton({
-  subsets: ["latin"],
+const display = localFont({
+  src: "./fonts/Anton-Regular.ttf",
   variable: "--face-display",
   weight: "400",
+  display: "swap",
 });
-const body = Figtree({
-  subsets: ["latin"],
+const body = localFont({
+  src: "./fonts/Figtree-Variable.ttf",
   variable: "--face-body",
-  weight: ["400", "500", "600", "700"],
+  weight: "400 700",
+  display: "swap",
 });
-const mono = IBM_Plex_Mono({
-  subsets: ["latin"],
+const mono = localFont({
+  src: [
+    { path: "./fonts/IBMPlexMono-Regular.ttf", weight: "400", style: "normal" },
+    { path: "./fonts/IBMPlexMono-Medium.ttf", weight: "500", style: "normal" },
+  ],
   variable: "--face-mono",
-  weight: ["400", "500"],
+  display: "swap",
 });
 
 export const metadata = {
