@@ -78,11 +78,11 @@ Never give a secret a `NEXT_PUBLIC_` prefix. `tests/key-leak.test.ts` and `scrip
 
 ## Desk
 
-`npm run dev` serves the mock incident. `/fixture` is the public judge page: MOCK FIXTURE, read only, no desk key, no Convex read. Beats are `incident`, `planned`, `failed`, `paid`, and `replay`. `GET /fixture/receipt` returns the redacted JSON pack. `GET /fixture/receipt?format=csv` returns the execution rows.
+`npm run dev` serves the mock incident. `/fixture` is the public judge page: MOCK FIXTURE, read only, no desk key, no Convex read. Beats are `incident`, `blocked`, `planned`, `failed`, `paid`, and `replay`. `blocked` stops on the round 1 objections and does not send. `GET /fixture/receipt` returns the redacted JSON pack. `GET /fixture/receipt?format=csv` returns the execution rows.
 
 The ops desk at `/` is the same story with the tap. When `DESK_APPROVE_SECRET` is unset and Convex is unset, anyone can run the local mock. When the key is set, plan, approve, replay, and the Convex incident need the cookie. A wrong key or a missing cookie stays on the fixture incident. The pay control stays off while the Wringer key is open.
 
-The desk reads as one decision. The headline says whether this beat is not planned, blocked, waiting for a tap, not paid, paid once, or the same payment on replay. Under it: the failed transfer, the proposal, the approval, the result, and the balances. Evidence tabs open one step. Request ids are full width and copyable. Receipt lines stay folded. A failed send does not get a paid receipt. A tap is refused if the cash evidence changed after the plan was filed. If the shared ledger keeps another worker's row, this desk does not claim that provider call was undone.
+The desk is one sheet. The status word is the headline, cut by a solid bar that also carries the amount. Under that, in the first view: the one-line reason, the next action when this page can take one, the proposal, the objections, the approval, the result, and the balances. Evidence tabs open one step. Request ids are full width and copyable. Receipt lines stay folded. A failed send does not get a paid receipt. A tap is refused if the cash evidence changed after the plan was filed. If the shared ledger keeps another worker's row, this desk does not claim that provider call was undone.
 
 The desk does not call the live Airwallex host. The live client refuses any host other than `api.sandbox.airwallex.com`. `lib/airwallex/corridor.ts` describes the sandbox steps and does not send. Missing credential names come back from that status check. No id is invented.
 

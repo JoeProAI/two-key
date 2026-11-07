@@ -2,6 +2,27 @@ import type { DeskStation, DeskView } from "./types";
 
 /** Plain words for the desk. Derived from the view. No new payment rules. */
 
+export function poster(view: DeskView): { word: string; tone: "fail" | "ok" | "wait" | "lock"; line: string } {
+  if (view.locked) return { word: "Locked", tone: "lock", line: view.lockNote ?? "The ledger stays closed." };
+  if (view.replayed) return { word: "Same payment", tone: "ok", line: "No new send. The provider ids match the recorded payment." };
+  if (view.phase === "failed") {
+    return { word: "Not paid", tone: "fail", line: view.error ?? "The approved plan did not finish. Nothing is marked paid." };
+  }
+  if (view.phase === "paid") return { word: "Paid once", tone: "ok", line: "One supplier payment was sent." };
+  if (view.blockCount > 0) {
+    const noun = view.blockCount === 1 ? "objection is" : "objections are";
+    return { word: "Blocked", tone: "fail", line: `${view.blockCount} ${noun} stopping a tap. Nothing has been sent.` };
+  }
+  const latest = view.rounds.at(-1);
+  if (latest?.decision === "awaiting_human") {
+    return { word: "Waiting", tone: "wait", line: "The latest plan is clear. Nothing has been sent." };
+  }
+  if (!view.plannerSeated) {
+    return { word: "Not planned", tone: "wait", line: `${view.amount} ${view.currency} cancelled. ${view.failure}` };
+  }
+  return { word: "In review", tone: "wait", line: "The plan is on the desk. Nothing has been sent." };
+}
+
 export function decisionCopy(view: DeskView): { accent: string; rest: string } {
   if (view.locked) {
     return { accent: "Desk locked.", rest: view.lockNote ?? "The ledger stays closed." };

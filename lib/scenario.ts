@@ -23,7 +23,7 @@ export function snapEvidence(situation: Situation): string {
 }
 
 /** Scripted demo: $40k supplier transfer failed, duplicate + out-of-order webhooks, EUR shortfall, deferred payout, one tap. */
-export async function runDemo(awx: AirwallexClient, opts: { approver?: string; now?: number; thresholdUsd?: number; ledger?: MemoryLedger; depositUsd?: number } = {}) {
+export async function runDemo(awx: AirwallexClient, opts: { approver?: string; now?: number; thresholdUsd?: number; ledger?: MemoryLedger; depositUsd?: number; stopOnBlock?: boolean } = {}) {
   const now = opts.now ?? fx.T0;
   const ledger = opts.ledger ?? new MemoryLedger();
   const inbox = new WebhookInbox();
@@ -74,6 +74,7 @@ export async function runDemo(awx: AirwallexClient, opts: { approver?: string; n
     decision.evidenceDigest = snapEvidence(situation);
     rounds.push({ proposal, findings, decision });
     if (decision.status === "blocked") {
+      if (opts.stopOnBlock) return { ledger, rounds, executions: [], receipt: null, awaiting: null, depositLine };
       if (r === 1 && opts.depositUsd && opts.depositUsd > 0) {
         const credit = (rows: { currency: string; available_amount: number; total_amount?: number }[] | undefined) => {
           const usd = rows?.find((b) => b.currency === "USD");

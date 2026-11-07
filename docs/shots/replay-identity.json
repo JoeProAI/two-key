@@ -9,14 +9,14 @@
     "transferAmount": 40000
   },
   "pass1": {
-    "fxProvider": "697409b9-393c-4289-bf84-d89a1713ded4",
-    "transferProvider": "b371eac9-f9f2-41c2-a6ff-06a0906686f5",
+    "fxProvider": "5ab3b23f-ab5d-462a-9ad1-f655f2910c6c",
+    "transferProvider": "8d1945c1-ff86-43a3-93c7-a41d310e6198",
     "fxResult": "ok",
     "transferResult": "ok"
   },
   "pass2": {
-    "fxProvider": "697409b9-393c-4289-bf84-d89a1713ded4",
-    "transferProvider": "b371eac9-f9f2-41c2-a6ff-06a0906686f5",
+    "fxProvider": "5ab3b23f-ab5d-462a-9ad1-f655f2910c6c",
+    "transferProvider": "8d1945c1-ff86-43a3-93c7-a41d310e6198",
     "fxResult": "already_done",
     "transferResult": "already_done",
     "buyAmount": 28000,

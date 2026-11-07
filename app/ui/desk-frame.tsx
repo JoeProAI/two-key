@@ -26,7 +26,7 @@ export function DeskFrame({ children }: { children: ReactNode }) {
       <a className="skip" href="#decision">Skip to the decision</a>
       {offline ? (
         <p className="banner" id="offline-note" role="status">
-          <em className="accent">Offline.</em> This is the last page that loaded. Controls stay off until the browser is back online. The receipt was not changed.
+          Offline. This is the last page that loaded. Controls stay off until the browser is back online. The receipt was not changed.
         </p>
       ) : null}
       {children}

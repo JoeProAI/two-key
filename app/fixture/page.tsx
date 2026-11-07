@@ -6,6 +6,7 @@ export const runtime = "nodejs";
 
 const BEATS: { id: string; label: string }[] = [
   { id: "incident", label: "Incident" },
+  { id: "blocked", label: "Blocked" },
   { id: "planned", label: "Plan" },
   { id: "failed", label: "Failed send" },
   { id: "paid", label: "Paid once" },

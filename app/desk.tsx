@@ -17,8 +17,8 @@ import { CopyId } from "./ui/copy-id";
 import {
   approvalLine,
   countLine,
-  decisionCopy,
   gateLine,
+  poster,
   proposalLine,
   resultLine,
   stationNote,
@@ -30,7 +30,6 @@ function Actions({ view }: { view: DeskView }) {
   if (view.locked) {
     return (
       <div className="actions">
-        {view.lockNote ? <p>{view.lockNote}</p> : null}
         {view.canUnlock ? (
           <GuardedForm action={unlockDesk} blocked={false}>
             <DeskKeyField />
@@ -44,7 +43,6 @@ function Actions({ view }: { view: DeskView }) {
   const payBlocked = !view.canApprove;
   return (
     <div className="actions">
-      {view.publicFixture && view.lockNote ? <p>{view.lockNote}</p> : null}
       {view.canPlan ? (
         <GuardedForm action={planDesk}>
           <SubmitButton
@@ -74,7 +72,7 @@ function Actions({ view }: { view: DeskView }) {
 }
 
 export function Desk({ view }: { view: DeskView }) {
-  const lead = decisionCopy(view);
+  const lead = poster(view);
   const counts = countLine(view);
   const tabs = view.stations.map((station) => ({
     id: station.id,
@@ -86,72 +84,72 @@ export function Desk({ view }: { view: DeskView }) {
   return (
     <DeskFrame>
       <header className="mast">
-        <div className="mast-id">
-          <p className="brand">Two-Key</p>
-          <p className="where">{view.reference}</p>
-        </div>
-        <div className="mast-side">
-          <p className="where">{view.publicFixture ? "Mock fixture. Read only." : "Private desk. Mock ledger."}</p>
-          {view.publicFixture ? <a className="quiet-link" href="/">Private desk</a> : <a className="quiet-link" href="/fixture">Mock fixture</a>}
-        </div>
+        <p className="brand">Two-Key</p>
+        <p className="where">{view.reference || "INV-2291"}</p>
+        <p className="mode">{view.publicFixture ? "Mock fixture. Read only." : "Private desk. Mock ledger."}</p>
+        {view.publicFixture ? <a className="quiet-link" href="/">Private desk</a> : <a className="quiet-link" href="/fixture">Mock fixture</a>}
       </header>
 
-      {view.warning ? <p className="banner" role="status"><em className="accent">Warning.</em> {view.warning}</p> : null}
+      {view.warning ? <p className="banner" role="status">Warning. {view.warning}</p> : null}
 
-      <h1 id="decision" role={view.error ? "alert" : undefined}>
-        <em className="accent">{lead.accent}</em> {lead.rest}
-      </h1>
-      <p className="gate" id="key-reason">{gateLine(view)}</p>
-
-      <div className="facts">
-        <section>
-          <h2>Failed transfer</h2>
-          <p>{view.status}. {view.failure}</p>
-          <p className="figure">{view.amount} {view.currency}</p>
-        </section>
-        <section>
-          <h2>Proposed</h2>
-          <p>{proposalLine(view)}</p>
-        </section>
-        <section>
-          <h2>Approval</h2>
-          <p>{approvalLine(view)}</p>
-        </section>
-        <section>
-          <h2>Result</h2>
-          <p>{resultLine(view)}</p>
-          {counts ? <p>{counts}</p> : null}
-        </section>
-      </div>
-
-      <section className="balances" aria-labelledby="balance-heading">
-        <h2 id="balance-heading">Resulting balances</h2>
-        <table>
-          <caption>Before is the opening available balance. Now is available after this beat. Total is available plus pending plus reserved.</caption>
-          <thead>
-            <tr>
-              <th scope="col">Currency</th>
-              <th scope="col">Before</th>
-              <th scope="col">Now</th>
-              <th scope="col">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {view.balances.map((row) => (
-              <tr key={row.currency}>
-                <th scope="row">{row.currency}</th>
-                <td>{view.balancesBefore.find((item) => item.currency === row.currency)?.available ?? row.available}</td>
-                <td>{row.available}</td>
-                <td>{row.total ?? row.available}</td>
+      <section className="sheet">
+        <div className="mark" data-tone={lead.tone}>
+          <h1 className="face ink" id="decision" role={view.error ? "alert" : undefined}>{lead.word}</h1>
+          <div className="cut" aria-hidden="true">
+            <p className="face light">{lead.word}</p>
+          </div>
+        </div>
+        <p className="amount">{view.amount} {view.currency} <span>failed invoice</span></p>
+        <p className="reason">{lead.line}</p>
+        <Actions view={view} />
+        <div className="facts">
+          <section>
+            <h2>Proposed</h2>
+            <p>{proposalLine(view)}</p>
+          </section>
+          <section>
+            <h2>Objections</h2>
+            <p>{view.blockCount > 0 ? `${view.blockCount} blocking` : view.rounds.length ? "None on the latest round" : "No plan yet"}</p>
+          </section>
+          <section>
+            <h2>Approval</h2>
+            <p>{approvalLine(view)}</p>
+          </section>
+          <section>
+            <h2>Result</h2>
+            <p>{resultLine(view)}{counts ? ` ${counts}` : ""}</p>
+          </section>
+        </div>
+        <div className="balances">
+          <h2 id="balance-heading">Balances</h2>
+          <div className="scroll">
+          <table>
+            <caption>Before is the opening available balance. Now is available after this beat. Total is available plus pending plus reserved.</caption>
+            <thead>
+              <tr>
+                <th scope="col">Currency</th>
+                <th scope="col">Before</th>
+                <th scope="col">Now</th>
+                <th scope="col">Total</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-        <p className="fine">{pending}. Floor {view.reserve} {view.currency === "USD" ? "USD" : view.currency}. {view.queuedLabel} {view.queuedAmount}. The floor is a rule, not reserved. Mock ledger, not a live balance.</p>
-        <CopyId id={view.requestId} label="Stable retry request" />
+            </thead>
+            <tbody>
+              {view.balances.map((row) => (
+                <tr key={row.currency}>
+                  <th scope="row">{row.currency}</th>
+                  <td>{view.balancesBefore.find((item) => item.currency === row.currency)?.available ?? row.available}</td>
+                  <td>{row.available}</td>
+                  <td>{row.total ?? row.available}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          </div>
+          <p className="fine">{pending}. Floor {view.reserve} USD. {view.queuedLabel} {view.queuedAmount}. The floor is a rule, not reserved. Mock ledger, not a live balance.</p>
+          <p className="gate" id="key-reason">{gateLine(view)}</p>
+          <CopyId id={view.requestId} label="Stable retry request" />
+        </div>
       </section>
-
-      <Actions view={view} />
 
       <EvidenceSwitch tabs={tabs} focus={view.focus}>
         <TransferPanel view={view} />

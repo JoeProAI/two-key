@@ -9,7 +9,7 @@ import { buildPack, executionsCsv, gitSha } from "../receipt/pack";
 import { presentPublic, publicIncident, renderSession } from "./session";
 import type { DeskView } from "./types";
 
-const BEATS = ["incident", "planned", "paid", "replay", "failed"] as const;
+const BEATS = ["incident", "blocked", "planned", "paid", "replay", "failed"] as const;
 export type FixtureBeat = (typeof BEATS)[number];
 
 export function fixtureBeat(raw: string | undefined): FixtureBeat {
@@ -28,6 +28,12 @@ export async function loadFixture(beat: FixtureBeat): Promise<DeskView> {
   if (beat === "incident") return publicIncident();
   const awx = createMockClient();
   const balancesBefore = money(awx.balances);
+  if (beat === "blocked") {
+    const blocked = await runDemo(awx, { stopOnBlock: true });
+    return presentPublic(renderSession({
+      awx, ledger: blocked.ledger, phase: "review", ledgerKind: "memory", warning: null, error: null, replayed: false, now: fx.T0, balancesBefore,
+    }), beat);
+  }
   if (beat === "failed") {
     const orig = awx.createConversion.bind(awx);
     awx.createConversion = async () => {

@@ -1,17 +1,16 @@
 import type { ReactNode } from "react";
-import { IBM_Plex_Mono, IBM_Plex_Sans, Newsreader } from "next/font/google";
+import { Anton, Figtree, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 
-const display = Newsreader({
+const display = Anton({
   subsets: ["latin"],
   variable: "--face-display",
-  weight: ["500", "600", "700"],
-  style: ["normal", "italic"],
+  weight: "400",
 });
-const body = IBM_Plex_Sans({
+const body = Figtree({
   subsets: ["latin"],
   variable: "--face-body",
-  weight: ["400", "500", "600"],
+  weight: ["400", "500", "600", "700"],
 });
 const mono = IBM_Plex_Mono({
   subsets: ["latin"],

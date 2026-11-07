@@ -1,8 +1,8 @@
 # Judges
 
-Measured on 2026-11-05 from this working tree, mock mode, no model key, no Convex, no Airwallex call.
+Measured on 2026-11-07 from this working tree, mock mode, no model key, no Convex, no Airwallex call.
 
-`npm run check`: lint, typecheck, 110 tests, leak-scan clean (45 client files, 12 needles), Next.js 15.5.27 build.
+`npm run check`: lint, typecheck, 110 tests, leak-scan clean (37 client files, 12 needles), Next.js 15.5.27 build. No skipped tests.
 
 ## 90 seconds
 
@@ -73,7 +73,7 @@ A second `npm run demo` on a client that already has the live retry does not rep
 
 ## Public page
 
-`/fixture` is MOCK FIXTURE and read only. It does not take a desk key and it does not query Convex. Download `GET /fixture/receipt`. The ops desk at `/` stays locked when `DESK_APPROVE_SECRET` is set.
+`/fixture` is MOCK FIXTURE and read only. It does not take a desk key and it does not query Convex. Beats: `incident`, `blocked` (round 1 only, nothing sent), `planned`, `failed`, `paid`, `replay`. Download `GET /fixture/receipt`. The ops desk at `/` stays locked when `DESK_APPROVE_SECRET` is set.
 
 ## Not proved here
 
