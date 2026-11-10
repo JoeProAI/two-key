@@ -5,9 +5,12 @@ import * as fx from "../lib/airwallex/fixtures";
 import type { MemoryLedger } from "../lib/ledger/memory";
 
 // Mock mode end to end. No keys, no network.
-// npm run demo [-- main | replay | stale-quote | approval | approval-timeout | deposit]
+// npm run demo [-- main | replay | rerun | stale-quote | approval | approval-timeout | deposit]
 // main is an independent run. replay is a separate scenario: pay once, then a fresh process reconciles.
-const name = (process.argv[2] ?? "main") as ScenarioName;
+// rerun is another name for replay: the second run must come back already_done with no second send.
+const ALIASES: Record<string, ScenarioName> = { rerun: "replay" };
+const asked = process.argv[2] ?? "main";
+const name = (ALIASES[asked] ?? asked) as ScenarioName;
 if (!(name in SCENARIOS)) {
   console.error(`Unknown scenario "${name}". Pick one of: ${Object.keys(SCENARIOS).join(", ")}`);
   process.exit(1);

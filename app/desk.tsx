@@ -4,6 +4,7 @@ import { DeskFrame } from "./ui/desk-frame";
 import { ApproverField, DeskKeyField, GuardedForm } from "./ui/guarded-form";
 import { SubmitButton } from "./ui/submit-button";
 import { CopyId } from "./ui/copy-id";
+import { HeroPlate } from "./ui/hero-plate";
 import { actionName, nextCue, rail, resultWord, stateLine } from "@/lib/desk/story";
 import type { DeskAction, DeskRound, DeskView } from "@/lib/desk/types";
 
@@ -28,20 +29,25 @@ export function Desk({ view, demo }: { view: DeskView; demo?: ReactNode }) {
           {view.publicFixture ? <span>Public fixture. Read only.</span> : null}
         </p>
       </header>
-      {demo}
-      <section className="hero money" id="incident" aria-labelledby="payee">
+      <section className="summary" id="incident" aria-labelledby="payee">
         <p className="eyebrow">Payee reference</p>
         <h1 id="payee">{view.reference}</h1>
-        <p className="amount">
-          <span className="figures">{view.amount}</span>
-          <span className="unit">{view.currency}</span>
+        <div className="figure-row">
+          <p className="amount">
+            <span className="figures">{view.amount}</span>
+            <span className="unit">{view.currency}</span>
+          </p>
+          <p className="state" data-tone={state.tone}>{state.word}</p>
+        </div>
+        <p className="next" id="next-step">
+          <a href={cue.href}>{cue.text}</a>
         </p>
-        <p className="state" data-tone={state.tone}>{state.word}</p>
+        <p className="lead">{state.detail}</p>
+        <p className="binding">
+          {latest ? `Bound to plan round ${latest.round}. Digest ${short(latest.boundDigest)}` : "No plan is filed. Nothing is bound."}
+        </p>
       </section>
-      <p className="next" id="next-step">
-        <a href={cue.href}>{cue.text}</a>
-      </p>
-      <p className="lead">{state.detail}</p>
+      <HeroPlate />
       <nav className="rail" aria-label="Bound decision">
         {stops.map((stop) => (
           <a key={stop.id} href={`#${stop.id}`}>
@@ -50,7 +56,8 @@ export function Desk({ view, demo }: { view: DeskView; demo?: ReactNode }) {
           </a>
         ))}
       </nav>
-      <section className="cash-field money" id="cash">
+      {demo}
+      <section className="cash-field" id="cash">
         <Incident view={view} />
         <h2>Cash plan</h2>
         <Cash view={view} />
@@ -305,6 +312,11 @@ function Term({ label, value, unknown, copy }: { label: string; value: string; u
       <dd>{copy ? <CopyId id={value} /> : value}</dd>
     </div>
   );
+}
+
+function short(digest: string | null | undefined): string {
+  if (!digest) return "unknown";
+  return digest.length > 12 ? `${digest.slice(0, 12)}…` : digest;
 }
 
 function count(value: number | null): string {

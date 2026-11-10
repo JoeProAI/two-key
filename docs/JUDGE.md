@@ -7,8 +7,10 @@ Measured on 2026-11-07 from this working tree, mock mode, no model key, no Conve
 ## 90 seconds
 
 ```bash
-npm ci && npm run check && npm run evidence
+npm ci && npm run proof
 ```
+
+`npm run proof` runs the install check, `npm run check`, `npm run demo`, `npm run demo -- rerun` and `npm run matrix`, then the Airwallex SANDBOX corridor only if `AIRWALLEX_CLIENT_ID` and `AIRWALLEX_API_KEY` are set. Without them it prints `SANDBOX skipped` and names them. The summary is `artifacts/proof/summary.md`. `npm run evidence` is the longer printout below.
 
 `npm run evidence` prints the matrix, then three labeled scenarios: `main`, `replay`, and `deposit`. They do not share a mock. `main` provider ids are not the replay's. It writes `artifacts/receipts/northwind-latest.json`, `artifacts/receipts/replay.json`, `artifacts/receipts/deposit.json`, and CSVs beside them. `docs/shots/northwind-receipt.json` is the main pack from that command. `docs/shots/replay-identity.json` is the fresh-process comparison from that command. Provider ids change when the process changes. These request ids stay, because each one includes the money fields:
 
@@ -72,6 +74,8 @@ A second `npm run demo` on a client that already has the live retry does not rep
 | stale finish unknown | shared ledger kept the other row. The message says the call was not undone and the result is unknown. transfers 0 |
 
 ## Public page
+
+The opening is one spread: an illustrative photo (captioned "Illustrative scene, not transaction evidence.") beside the live summary on desktop, and below it on a phone, where the amount and the next step come first. Captures are in `docs/shots/desktop-*.png` and `docs/shots/phone-*.png`.
 
 `/fixture` is a mock fixture and read only. It does not take a desk key and it does not query Convex. Beats: `incident`, `blocked` (round 1 only, nothing sent), `planned`, `refused` (cash snapshot changed, tap refused, nothing executed), `failed`, `paid` (simulated result), `replay` (recorded ids checked, no new payment). Download `GET /fixture/receipt`. The ops desk at `/` stays locked when `DESK_APPROVE_SECRET` is set. Unknown and partial completion stay matrix rows. They are not extra fixture beats.
 

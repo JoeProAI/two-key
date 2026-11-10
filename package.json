@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
+  "engines": {
+    "node": ">=20.9"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -15,7 +18,9 @@
     "evidence": "tsx --conditions=react-server scripts/evidence.ts",
     "live-smoke": "tsx --conditions=react-server scripts/live-smoke.ts",
     "leak-scan": "node scripts/leak-scan.mjs",
-    "check": "npm run lint && npm run typecheck && npm run test && npm run leak-scan"
+    "check": "npm run lint && npm run typecheck && npm run test && npm run leak-scan",
+    "proof": "node scripts/proof.mjs",
+    "pack:source": "bash scripts/make-source-zip.sh"
   },
   "dependencies": {
     "convex": "^1.46.0",

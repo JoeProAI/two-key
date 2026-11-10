@@ -136,7 +136,7 @@ export function nextCue(view: DeskView): { text: string; href: string } {
   if (view.error && view.phase !== "failed") return { text: "Next: read why the tap was refused. This page does not send.", href: "#authorization" };
   if (view.replayed) return { text: "Next: read the checked ids. There is no further payment step.", href: "#receipt" };
   if (view.phase === "paid" && view.canReplay) return { text: "Next: verify the recorded mock result. That check does not pay again.", href: "#receipt" };
-  if (view.phase === "paid") return { text: "A simulated payment is recorded. This page cannot pay again.", href: "#receipt" };
+  if (view.phase === "paid") return { text: "Next: read the receipt. This page cannot pay again.", href: "#receipt" };
   if (view.phase === "failed") return { text: "Next: read why the simulation stopped. Nothing is marked paid.", href: "#receipt" };
   if (view.blockCount > 0) return { text: "Next: read the checker blocks. A tap cannot override them.", href: "#check" };
   if (view.rounds.at(-1)?.decision === "awaiting_human") return { text: "Next: read every bound term, then the mock approval.", href: "#authorization" };
