@@ -18,7 +18,7 @@ export function AirwallexCalls({ view }: { view: DeskView }) {
   return (
     <section className="awx" id="airwallex" aria-labelledby="awx-title">
       <h2 id="awx-title">Airwallex calls</h2>
-      <p>This deploy is MOCK. It did not call Airwallex. Each step maps to the endpoint below. The right column is the recorded sandbox run on {RECORDED}, rerun {"2026-10-28"} with already_done and no second create.</p>
+      <p>This deploy is MOCK. It did not call Airwallex. Each step maps to the endpoint below. The Sandbox line is the recorded run on {RECORDED}, rerun {"2026-10-28"} with already_done and no second create.</p>
       <ol className="awx-rows">
         {rows.map((row) => (
           <li key={row.endpoint}>

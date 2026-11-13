@@ -28,7 +28,7 @@ export function Desk({ view, demo }: { view: DeskView; demo?: ReactNode }) {
         <p className="mast-links">
           {privateDesk ? <a href="/fixture">Mock fixture</a> : <a href="/">Private desk</a>}
           {view.publicFixture ? <span>Public fixture. Read only.</span> : null}
-          <a href="#airwallex">Airwallex calls</a>
+          <a href="#airwallex" className="awx-link">Airwallex calls</a>
         </p>
       </header>
       <section className="summary" id="incident" aria-labelledby="payee">

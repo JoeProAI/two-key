@@ -312,6 +312,8 @@ a { color: inherit; }
 
 .proof { background: var(--plum); color: var(--paper); border-top: 8px solid var(--vermilion); }
 
+@media (max-width: 767px) { .mast-links .awx-link { display: none; } }
+
 .awx { padding: 28px 16px 32px; background: var(--cyan); color: var(--plum); }
 
 .awx-rows { list-style: none; padding: 0; margin: 16px 0; display: grid; gap: 2px; }
