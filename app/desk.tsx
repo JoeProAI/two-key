@@ -23,9 +23,10 @@ export function Desk({ view, demo }: { view: DeskView; demo?: ReactNode }) {
     <DeskFrame>
       <div className={demo ? "instrument has-demo" : "instrument"}>
       <header className="mast">
-        <p className="brand">Two-Key</p>
+        <p className="brand"><a href={privateDesk ? "/" : "/fixture"}>Two-Key</a></p>
         <p className="mock">MOCK. No real money moves.</p>
         <p className="mast-links">
+          <a href="/docs">Docs</a>
           {privateDesk ? <a href="/fixture">Mock fixture</a> : <a href="/">Private desk</a>}
           {view.publicFixture ? <span>Public fixture. Read only.</span> : null}
           <a href="#airwallex" className="awx-link">Airwallex calls</a>
@@ -52,7 +53,7 @@ export function Desk({ view, demo }: { view: DeskView; demo?: ReactNode }) {
       <HeroPlate />
       <nav className="rail" aria-label="Bound decision">
         {stops.map((stop) => (
-          <a key={stop.id} href={`#${stop.id}`}>
+          <a key={stop.id} href={`#${stop.id}`} data-stop={stop.id}>
             <span>{stop.label}</span>
             <strong>{stop.status}</strong>
           </a>
@@ -235,7 +236,7 @@ function Checker({ rounds, blockCount }: { rounds: DeskRound[]; blockCount: numb
               <ul>
                 {round.findings.map((finding) => (
                   <li key={`${round.round}-${finding.check}`}>
-                    <strong>{finding.severity === "block" ? "Blocking" : "Note"}. {finding.check}.</strong> {finding.detail}
+                    <strong data-severity={finding.severity}>{finding.severity === "block" ? "Blocking" : "Note"}. {finding.check}.</strong> {finding.detail}
                     {finding.at ? ` Recorded at ${finding.at} on the demo clock.` : " Recorded time unknown."}
                   </li>
                 ))}
