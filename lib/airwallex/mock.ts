@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { applyAvailable, round } from "../money";
-import { AWX_ERR, AirwallexError, type AirwallexClient, type Balance, type Conversion, type Quote, type Transfer } from "./types";
+import { AWX_ERR, AirwallexError, type AirwallexClient, type Balance, type BeneficiaryView, type Conversion, type Quote, type Transfer } from "./types";
 import * as fx from "./fixtures";
 
 const VALIDITY_MS: Record<Quote["validity"], number> = {
@@ -18,10 +18,11 @@ const VALIDITY_MS: Record<Quote["validity"], number> = {
 /** A quote Airwallex already issued. The real API keeps it server side; a restarted mock is told about it. */
 export type IssuedQuote = Pick<Quote, "quote_id" | "buy_currency" | "sell_currency" | "buy_amount" | "valid_to_at">;
 
-export type MockSnapshot = { balances: Balance[]; transfers: Transfer[]; conversions: Conversion[]; quotes: Quote[] };
+export type MockSnapshot = { balances: Balance[]; transfers: Transfer[]; conversions: Conversion[]; quotes: Quote[]; beneficiaries?: BeneficiaryView[] };
 
-export function createMockClient(opts: { now?: () => number; transfers?: Transfer[]; balances?: Balance[]; quotes?: Array<IssuedQuote | Quote>; conversions?: Conversion[] } = {}): AirwallexClient & {
-  calls: { createTransfer: number; createConversion: number; createQuote: number };
+export function createMockClient(opts: { now?: () => number; transfers?: Transfer[]; balances?: Balance[]; quotes?: Array<IssuedQuote | Quote>; conversions?: Conversion[]; beneficiaries?: BeneficiaryView[] } = {}): AirwallexClient & {
+  calls: { createTransfer: number; createConversion: number; createQuote: number; updateBeneficiary: number };
+  beneficiaries: Map<string, BeneficiaryView>;
   settled: { transfers: number; conversions: number };
   conversions: Map<string, Conversion>;
   quotes: Map<string, Quote>;
@@ -43,7 +44,8 @@ export function createMockClient(opts: { now?: () => number; transfers?: Transfe
     }
     return b;
   };
-  const calls = { createTransfer: 0, createConversion: 0, createQuote: 0 };
+  const calls = { createTransfer: 0, createConversion: 0, createQuote: 0, updateBeneficiary: 0 };
+  const beneficiaries = new Map<string, BeneficiaryView>((opts.beneficiaries ?? [fx.supplierBeneficiary]).map((b) => [b.id, { ...b }]));
   for (const q of opts.quotes ?? []) {
     if ("sell_amount" in q && q.client_rate) quotes.set(q.quote_id, { ...q });
     else quotes.set(q.quote_id, {
@@ -67,6 +69,20 @@ export function createMockClient(opts: { now?: () => number; transfers?: Transfe
     balances,
     transfers,
     conversions,
+    beneficiaries,
+    async getBeneficiary(id) {
+      const b = beneficiaries.get(id);
+      if (!b) throw new AirwallexError("not found", 404);
+      return { ...b };
+    },
+    async updateBeneficiary(id, fix) {
+      const b = beneficiaries.get(id);
+      if (!b) throw new AirwallexError("not found", 404);
+      calls.updateBeneficiary++;
+      b.companyName = fix.companyName;
+      b.accountName = fix.accountName;
+      return { ...b };
+    },
     async getTransfer(id) {
       const t = transfers.get(id);
       if (!t) throw new AirwallexError("not found", 404);
@@ -149,8 +165,9 @@ export function createMockClient(opts: { now?: () => number; transfers?: Transfe
 }
 
 /** Copy the objects a fresh process needs in order to look the same request ids up. Balances are copied as stored. */
-export function snapshotMock(awx: { balances: Balance[]; transfers: Map<string, Transfer>; conversions: Map<string, Conversion>; quotes: Map<string, Quote> }): MockSnapshot {
+export function snapshotMock(awx: { balances: Balance[]; transfers: Map<string, Transfer>; conversions: Map<string, Conversion>; quotes: Map<string, Quote>; beneficiaries?: Map<string, BeneficiaryView> }): MockSnapshot {
   return {
+    beneficiaries: awx.beneficiaries ? [...awx.beneficiaries.values()].map((b) => ({ ...b })) : undefined,
     balances: awx.balances.map((b) => ({ ...b })),
     transfers: [...awx.transfers.values()].map((t) => ({ ...t })),
     conversions: [...awx.conversions.values()].map((c) => ({ ...c })),

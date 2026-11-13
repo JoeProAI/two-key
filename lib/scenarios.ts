@@ -11,23 +11,25 @@ import { review } from "./agents/wringer";
 import { approve, decide, execute, expireIfStale } from "./agents/executor";
 import { round } from "./money";
 import { evidenceDigest } from "./receipt/bind";
-import { buildReceipt, runDemo } from "./scenario";
+import { buildReceipt, payeeFacts, runDemo } from "./scenario";
 
 async function situationFor(awx: AirwallexClient, intentId: string, now: number, transferId: string, deliveries: WebhookEvent<Transfer>[], queued: Situation["queuedPayouts"], thresholdUsd: number): Promise<Situation> {
   const inbox = new WebhookInbox();
   for (const e of deliveries) inbox.ingest(e);
   const original = await awx.getTransfer(transferId);
   const failed = deliveries.filter((e) => e.name === "payout.transfer.failed");
+  const balances = await awx.getBalances();
   return {
     intentId, now, original,
     webhook: {
       statusByCreatedAt: inbox.status(transferId), statusByArrival: inbox.statusByArrival(transferId),
       sawFailedEvent: failed.length > 0, failedDeliveries: failed.length, uniqueFailedEvents: new Set(failed.map((e) => e.id)).size, duplicates: inbox.duplicates(),
     },
-    balances: await awx.getBalances(),
+    balances,
     reserve: { currency: "USD", amount: fx.RESERVE_USD },
     queuedPayouts: queued,
     approvalThresholdUsd: thresholdUsd,
+    ...(await payeeFacts(awx, original, balances)),
   };
 }
 
@@ -194,7 +196,8 @@ export const SCENARIOS = {
     writeFileSync(`${dir}/identity.json`, JSON.stringify(identity, null, 2));
     // Vitest runs every scenario, including this one. Writing the judge file here
     // would replace the evidence command's ids with whichever test process ran last.
-    if (process.env.VITEST !== "true") {
+    // Also opt-in, so proof and evidence runs leave tracked files alone.
+    if (process.env.VITEST !== "true" && process.env.TWO_KEY_WRITE_SHOTS === "1") {
       mkdirSync("docs/shots", { recursive: true });
       writeFileSync("docs/shots/replay-identity.json", JSON.stringify(identity, null, 2));
     }

@@ -13,6 +13,9 @@ const base = (): Situation => ({
   intentId: "i", now: fx.T0, original: { ...fx.originalTransfer },
   webhook: { statusByCreatedAt: "CANCELLED", statusByArrival: "CANCELLED", sawFailedEvent: true, failedDeliveries: 1, uniqueFailedEvents: 1, duplicates: [] },
   balances: [{ currency: "USD", available_amount: 100000 }], reserve: { currency: "USD", amount: 10000 }, queuedPayouts: [], approvalThresholdUsd: 10000,
+  // The payee already carries the supplier-confirmed names, so a plain retry is clean.
+  correction: { ...fx.supplierCorrection },
+  beneficiary: { ...fx.supplierBeneficiary, companyName: fx.supplierCorrection.companyName, accountName: fx.supplierCorrection.accountName },
 });
 
 describe("demo scenario (mock, end to end)", () => {
@@ -24,7 +27,7 @@ describe("demo scenario (mock, end to end)", () => {
     expect(res.rounds[1].decision.humanApprovedBy).toBe("joe");
     expect(awx.calls.createTransfer).toBe(1);
     expect(awx.calls.createConversion).toBe(1);
-    expect(res.executions.map((e) => [e.actionKind, e.result])).toEqual([["defer_payout", "ok"], ["fx_conversion", "ok"], ["retry_transfer", "ok"]]);
+    expect(res.executions.map((e) => [e.actionKind, e.result])).toEqual([["defer_payout", "ok"], ["correct_beneficiary", "ok"], ["fx_conversion", "ok"], ["retry_transfer", "ok"]]);
     const usd = awx.balances.find((b) => b.currency === "USD")!;
     const eur = awx.balances.find((b) => b.currency === "EUR")!;
     expect(usd.available_amount).toBe(10000);

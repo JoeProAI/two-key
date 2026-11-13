@@ -1,4 +1,4 @@
-import type { Balance, Transfer, WebhookEvent } from "./types";
+import type { Balance, BeneficiaryView, Transfer, WebhookEvent } from "./types";
 
 // Hand-written fixtures for the demo scenario. Shapes follow the Airwallex docs; values are invented.
 export const T0 = Date.parse("2026-11-02T14:00:00Z");
@@ -7,6 +7,21 @@ export const iso = (ms: number) => new Date(ms).toISOString().replace(".000Z", "
 export const SUPPLIER_BENEFICIARY_ID = "9a45987e-cffc-4f0a-81d7-000000000001";
 export const ORIGINAL_TRANSFER_ID = "43217eec-6053-4fe6-b760-000000000040";
 export const ORIGINAL_REQUEST_ID = "legacy-erp-req-40000";
+
+/** The payee as stored when the original failed. The bank rejected the account name. */
+export const supplierBeneficiary: BeneficiaryView = {
+  id: SUPPLIER_BENEFICIARY_ID, companyName: "Northwind Steel", accountName: "Northwind Steel", accountLast4: "4417", nickname: "northwind-steel",
+};
+
+/** New information: the supplier confirmed its legal account name. Fictional. Same account, corrected name. */
+export const supplierCorrection = {
+  beneficiaryId: SUPPLIER_BENEFICIARY_ID,
+  companyName: "Northwind Steel Fabrication LLC",
+  accountName: "Northwind Steel Fabrication LLC",
+  accountLast4: "4417",
+  source: "supplier letter, confirmed by call-back to the number already on file",
+  receivedAt: iso(T0 - 300_000),
+};
 
 export const originalTransfer: Transfer = {
   id: ORIGINAL_TRANSFER_ID,

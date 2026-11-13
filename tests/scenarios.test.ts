@@ -31,7 +31,7 @@ describe("scenario (b): payout over the approval threshold", () => {
     expect(r.waits.length).toBeGreaterThan(0);
     expect(r.waits.every((w) => w.status === "awaiting_human" && w.transfersCreated === 0)).toBe(true);
     expect(r.decision.status).toBe("approved");
-    expect(r.executions.map((e) => [e.actionKind, e.result])).toEqual([["retry_transfer", "ok"]]);
+    expect(r.executions.map((e) => [e.actionKind, e.result])).toEqual([["correct_beneficiary", "ok"], ["retry_transfer", "ok"]]);
     expect(r.awx.calls.createTransfer).toBe(1);
   });
   it("times out: expires, moves nothing, and refuses a late tap", async () => {

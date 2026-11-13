@@ -9,7 +9,7 @@ import { redact } from "../lib/receipt/redact";
 // Northwind on the MOCK provider, with the planner and Wringer consulted through OpenRouter.
 // Hard Wringer checks stay in code and stay authoritative. Model text is advisory and schema-checked.
 // No Airwallex call is made. No money moves.
-const HARD_CHECKS = new Set(["duplicate_webhook", "double_payment", "unstable_request_id", "out_of_order_webhook", "cancelled_not_failed", "original_still_live", "failed_not_yet_cancelled", "stale_fx_quote", "reserve_breach"]);
+const HARD_CHECKS = new Set(["duplicate_webhook", "double_payment", "unstable_request_id", "out_of_order_webhook", "cancelled_not_failed", "original_still_live", "failed_not_yet_cancelled", "stale_fx_quote", "reserve_breach", "beneficiary_unchanged_after_mismatch", "beneficiary_correction_unverified", "original_debit_not_returned"]);
 
 const missing = missingAgentEnv(process.env);
 if (missing.length) {

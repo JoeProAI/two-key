@@ -100,7 +100,7 @@ async function replayFixture() {
   const proposal = first.rounds.at(-1)?.proposal;
   if (!proposal) throw new Error("fixture replay had no plan");
   const snap = snapshotMock(awx);
-  const fresh = createMockClient({ balances: snap.balances, transfers: snap.transfers, conversions: snap.conversions, quotes: snap.quotes });
+  const fresh = createMockClient({ balances: snap.balances, transfers: snap.transfers, conversions: snap.conversions, beneficiaries: snap.beneficiaries, quotes: snap.quotes });
   const ledger = new MemoryLedger();
   ledger.intents.push(...first.ledger.intents);
   ledger.proposals.push(...first.ledger.proposals);

@@ -85,6 +85,15 @@ export interface DeskView {
   reference: string;
   failure: string;
   beneficiary: string;
+  /** Account name on the stored payee now. */
+  payeeStored: string;
+  /** Account name the supplier confirmed after the mismatch. Fictional. */
+  payeeConfirmed: string;
+  payeeLast4: string;
+  payeeSource: string;
+  /** Plain read-back of the original and the cash it could hold. */
+  readBack: string;
+  payeeUpdates: number | null;
   originalRequestId: string;
   balances: DeskMoney[];
   reserve: string;

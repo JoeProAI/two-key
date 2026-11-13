@@ -2,12 +2,13 @@ import type { AirwallexClient, Conversion, Transfer } from "../airwallex/types";
 import type { MemoryLedger } from "../ledger/memory";
 import type { Action, Execution } from "../ledger/types";
 import { finishRequest } from "../ledger/remote";
-import { fxRequestId, retryRequestId } from "../requestId";
+import { correctionRequestId, fxRequestId, retryRequestId } from "../requestId";
 import { randomUUID } from "node:crypto";
 
 /** The request_id this action is allowed to carry. A changed amount, currency, or beneficiary is a different id. */
 export function expectedRequestId(intentId: string, action: Action): string {
   if (action.kind === "defer_payout") return `defer:${action.payoutId}`;
+  if (action.kind === "correct_beneficiary") return correctionRequestId(intentId, action.beneficiaryId, action.companyName, action.accountName);
   if (action.kind === "fx_conversion") return fxRequestId(intentId, action.buyAmount, action.buyCurrency, action.sellCurrency);
   return retryRequestId(intentId, "0", {
     originalTransferId: action.originalTransferId,
@@ -30,6 +31,10 @@ export function priorAgrees(action: Action, response: unknown): boolean {
   if (!response || typeof response !== "object") return true;
   if (action.kind === "fx_conversion" && "buy_amount" in response) return conversionAgrees(action, response as Conversion);
   if (action.kind === "retry_transfer" && "transfer_amount" in response) return transferAgrees(action, response as Transfer);
+  if (action.kind === "correct_beneficiary" && "companyName" in response) {
+    const b = response as { companyName: string; accountName: string };
+    return b.companyName === action.companyName && b.accountName === action.accountName;
+  }
   return true;
 }
 
@@ -42,7 +47,7 @@ export async function reconcileSettled(
   decisionId: string,
   now: number,
 ): Promise<Execution[]> {
-  const order: Action["kind"][] = ["defer_payout", "fx_conversion", "retry_transfer"];
+  const order: Action["kind"][] = ["defer_payout", "correct_beneficiary", "fx_conversion", "retry_transfer"];
   const sorted = [...actions].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
   const owner = randomUUID();
   const out: Execution[] = [];
@@ -56,6 +61,14 @@ export async function reconcileSettled(
       response = { message: "request_id does not match this action payload. Reconcile did not send." };
     } else if (action.kind === "defer_payout") {
       response = { deferred: action.payoutId, until: action.until };
+    } else if (action.kind === "correct_beneficiary") {
+      const b = await awx.getBeneficiary(action.beneficiaryId);
+      response = b;
+      airwallexId = b.id;
+      if (b.companyName !== action.companyName || b.accountName !== action.accountName) {
+        result = "error";
+        response = { message: "The payee on Airwallex does not carry the corrected names. Reconcile did not send." };
+      }
     } else if (action.kind === "fx_conversion") {
       const existing = await awx.findConversionByRequestId(requestId);
       if (!existing) {

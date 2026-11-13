@@ -24,7 +24,7 @@ describe("conversion lookup by request_id", () => {
     const ledger = new MemoryLedger();
     const actions = first.rounds.at(-1)!.proposal.actions;
     const reconciled = await reconcileSettled(awx, "intent_inv2291", actions, ledger, "dec_reconcile", fx.T0);
-    expect(reconciled.map((e) => [e.actionKind, e.result])).toEqual([["defer_payout", "already_done"], ["fx_conversion", "already_done"], ["retry_transfer", "already_done"]]);
+    expect(reconciled.map((e) => [e.actionKind, e.result])).toEqual([["defer_payout", "already_done"], ["correct_beneficiary", "already_done"], ["fx_conversion", "already_done"], ["retry_transfer", "already_done"]]);
     expect(awx.calls.createConversion).toBe(1);
     expect(awx.calls.createTransfer).toBe(1);
     expect(awx.conversions.size).toBe(1);

@@ -6,10 +6,13 @@ const RECORDED = "2026-10-27";
 export function AirwallexCalls({ view }: { view: DeskView }) {
   const conv = view.conversionCalls ?? 0;
   const xfer = view.transferCalls ?? 0;
+  const fixes = view.payeeUpdates ?? 0;
   const rows: { step: string; endpoint: string; mock: string; sandbox: string }[] = [
     { step: "Sign in", endpoint: "POST /api/v1/authentication/login", mock: "Not needed by the mock", sandbox: "201" },
     { step: "Read cash", endpoint: "GET /api/v1/balances/current", mock: "Mock answered", sandbox: "200" },
     { step: "Price the FX", endpoint: "POST /api/v1/fx/quotes/create", mock: "Mock answered", sandbox: "quote 878e1b2c-070a-3b39-9b69-0a60291f9ec6" },
+    { step: "Read the payee", endpoint: "GET /api/v1/beneficiaries/{id}", mock: "Mock answered", sandbox: "Not in the recorded run" },
+    { step: "Fix the payee before paying", endpoint: "POST /api/v1/beneficiaries/{id}/update", mock: `Mock answered. Payee updates ${fixes}`, sandbox: "Not in the recorded run" },
     { step: "Convert, request_id looked up first", endpoint: "GET /api/v1/fx/conversions?request_id= then POST /api/v1/fx/conversions/create", mock: `Mock answered. Conversion calls ${conv}`, sandbox: "conversion 32a3bfa6-0c1e-408b-986e-84a45f472449 SETTLED" },
     { step: "Pay, request_id looked up first", endpoint: "GET /api/v1/transfers?request_id= then POST /api/v1/transfers/create", mock: `Mock answered. Transfer calls ${xfer}`, sandbox: "transfer 4e1dab1a-c59b-413b-92d5-813f6caafd59" },
     { step: "Drive the failure", endpoint: "POST /api/v1/simulation/transfers/{id}/transition", mock: "Fixture history", sandbox: "SENT, FAILED (BENEFICIARY_NAME_MISMATCH), read back CANCELLED" },

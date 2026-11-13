@@ -21,7 +21,8 @@
     "leak-scan": "node scripts/leak-scan.mjs",
     "check": "npm run lint && npm run typecheck && npm run test && npm run leak-scan",
     "proof": "node scripts/proof.mjs",
-    "pack:source": "bash scripts/make-source-zip.sh"
+    "pack:source": "bash scripts/make-source-zip.sh",
+    "shots:json": "TWO_KEY_WRITE_SHOTS=1 npm run demo && TWO_KEY_WRITE_SHOTS=1 npm run evidence"
   },
   "dependencies": {
     "convex": "^1.46.0",

@@ -27,6 +27,11 @@ export function fxRequestId(intentId: string, buyAmount: number, buyCurrency: st
   return stableRequestId(intentId, "fx_conversion", [buyAmount, buyCurrency, sellCurrency].join("|"));
 }
 
+/** One payee correction per beneficiary and corrected names. */
+export function correctionRequestId(intentId: string, beneficiaryId: string, companyName: string, accountName: string): string {
+  return stableRequestId(intentId, "correct_beneficiary", [beneficiaryId, companyName, accountName].join("|"));
+}
+
 export function canonicalRetryId(intentId: string, original: { id: string; transfer_amount: number; transfer_currency: string; beneficiary_id?: string }): string {
   return retryRequestId(intentId, "0", {
     originalTransferId: original.id,

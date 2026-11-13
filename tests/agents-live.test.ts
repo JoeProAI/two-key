@@ -49,7 +49,7 @@ describe("live agent path with a stubbed OpenRouter", () => {
     const awx = createMockClient();
     const res = await runDemo(awx, { approver: "joe", agents: { env } });
     expect(res.rounds[0].decision.status).toBe("blocked");
-    expect(res.rounds[0].findings.filter((f) => f.severity === "block").map((f) => f.check)).toEqual(["double_payment", "unstable_request_id", "reserve_breach"]);
+    expect(res.rounds[0].findings.filter((f) => f.severity === "block").map((f) => f.check)).toEqual(["double_payment", "unstable_request_id", "beneficiary_unchanged_after_mismatch", "reserve_breach"]);
     expect(awx.calls.createTransfer).toBe(1);
   });
 

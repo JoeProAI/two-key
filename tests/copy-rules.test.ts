@@ -11,7 +11,8 @@ function files(path: string): string[] {
 }
 
 describe("copy rules", () => {
-  const all = ROOTS.flatMap(files).filter((f) => TEXT.test(f));
+  // docs/agent-runs holds verbatim model output; it is evidence, not our copy.
+  const all = ROOTS.flatMap(files).filter((f) => TEXT.test(f) && !f.startsWith("docs/agent-runs/"));
 
   it("no em dash (U+2014) in app/, lib/, docs/, or README.md", () => {
     const hits = all.filter((f) => readFileSync(f, "utf8").includes("\u2014"));

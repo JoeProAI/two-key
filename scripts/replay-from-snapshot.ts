@@ -15,7 +15,7 @@ const actions = JSON.parse(readFileSync(`${dir}/actions.json`, "utf8")) as Actio
 const awx = createMockClient({
   balances: snap.balances,
   transfers: snap.transfers,
-  conversions: snap.conversions,
+  conversions: snap.conversions, beneficiaries: snap.beneficiaries,
   quotes: snap.quotes,
 });
 const ledger = new MemoryLedger();

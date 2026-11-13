@@ -56,7 +56,8 @@ if (ledger) {
   const file = name === "main" ? "artifacts/receipts/northwind-latest.json" : `artifacts/receipts/${name}.json`;
   writeFileSync(file, JSON.stringify(pack, null, 2));
   writeFileSync(file.replace(/\.json$/, ".csv"), executionsCsv(pack));
-  if (name === "main") {
+  // Tracked judge copy only on request, so a judge running the demo keeps a clean tree.
+  if (name === "main" && process.env.TWO_KEY_WRITE_SHOTS === "1") {
     mkdirSync("docs/shots", { recursive: true });
     writeFileSync("docs/shots/northwind-receipt.json", JSON.stringify(pack, null, 2));
   }

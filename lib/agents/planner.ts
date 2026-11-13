@@ -1,8 +1,9 @@
 import type { Action } from "../ledger/types";
-import { fxRequestId, retryRequestId } from "../requestId";
+import { correctionRequestId, fxRequestId, retryRequestId } from "../requestId";
 import { round } from "../money";
-import type { Situation } from "./situation";
+import { payeeMismatch, type Situation } from "./situation";
 import { agentMode, chatJSON, type ChatJSON } from "./openrouter";
+import { FLOW_FACTS } from "./wringer";
 
 export interface Plan { summary: string; actions: Action[] }
 
@@ -14,7 +15,8 @@ export interface PlanOptions {
 export const PLANNER_SYSTEM = `You are the Two-Key planner for a payment ops team on Airwallex.
 Code has already filed the money moves for this round (retry_transfer, fx_conversion, defer_payout).
 You may comment. You cannot add, remove, or renumber moves, and you cannot set ids, amounts, or request_ids.
-Reply JSON {"summary": string, "moves": []}.`;
+Reply JSON {"summary": string, "moves": []}. Keep the summary under 400 characters.
+${FLOW_FACTS}`;
 
 /** Deterministic stub. Round 1 is the "obvious" plan a hurried operator makes; round 2 answers the Wringer. */
 export function stubPlan(s: Situation, round_: number, objections: string[]): Plan {
@@ -33,6 +35,11 @@ export function stubPlan(s: Situation, round_: number, objections: string[]): Pl
   }
   const usd = s.balances.find((b) => b.currency === o.transfer_currency)?.available_amount ?? 0;
   const actions: Action[] = [retry("0")];
+  const c = s.correction;
+  const fixed = s.beneficiary && c && s.beneficiary.companyName === c.companyName && s.beneficiary.accountName === c.accountName;
+  if (payeeMismatch(o) && c && c.beneficiaryId === o.beneficiary_id && !fixed) {
+    actions.unshift({ kind: "correct_beneficiary", beneficiaryId: c.beneficiaryId, companyName: c.companyName, accountName: c.accountName, requestId: correctionRequestId(s.intentId, c.beneficiaryId, c.companyName, c.accountName) });
+  }
   let need = o.transfer_amount + s.reserve.amount - usd;
   const deferred = s.queuedPayouts.filter((p) => p.priority === "low" && p.currency === o.transfer_currency);
   for (const p of deferred) {
@@ -46,14 +53,17 @@ export function stubPlan(s: Situation, round_: number, objections: string[]): Pl
     });
   }
   return {
-    summary: [
-      "Retry once with a stable request_id",
+    summary: sentence([
+      ...(actions.some((a) => a.kind === "correct_beneficiary") ? [`correct the payee name to ${c!.companyName} as the supplier confirmed`] : []),
+      "retry once with a stable request_id",
       ...(actions.some((a) => a.kind === "fx_conversion") ? [`buy ${s.quote!.buy_amount} USD with EUR at the quoted rate`] : []),
       ...(deferred.length ? [`defer ${deferred.length} low-priority payout(s)`] : []),
-    ].join(", ") + ".",
+    ].join(", ")),
     actions,
   };
 }
+
+const sentence = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
 
 /** Live path: the model is consulted when OpenRouter is configured. Its `summary` becomes the plan text.
  *  Code still files every move: the model cannot add a retry, change an amount, or choose a request_id.

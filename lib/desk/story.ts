@@ -172,6 +172,7 @@ export function actionName(kind: string): string {
   if (kind === "fx_conversion") return "Conversion";
   if (kind === "retry_transfer") return "Retry transfer";
   if (kind === "defer_payout") return "Defer payout";
+  if (kind === "correct_beneficiary") return "Correct payee";
   return kind;
 }
 

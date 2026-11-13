@@ -3,7 +3,8 @@
 export type Action =
   | { kind: "retry_transfer"; originalTransferId: string; amount: number; currency: string; beneficiaryId: string; reference: string; requestId: string }
   | { kind: "fx_conversion"; buyCurrency: string; sellCurrency: string; buyAmount: number; quoteId: string; quoteValidToAt: string; requestId: string }
-  | { kind: "defer_payout"; payoutId: string; amount: number; currency: string; until: string };
+  | { kind: "defer_payout"; payoutId: string; amount: number; currency: string; until: string }
+  | { kind: "correct_beneficiary"; beneficiaryId: string; companyName: string; accountName: string; requestId: string };
 
 export interface Intent { id: string; title: string; createdAt: number; status: "open" | "resolved" | "blocked" }
 export interface Proposal { id: string; intentId: string; round: number; author: "planner"; summary: string; actions: Action[]; createdAt: number }

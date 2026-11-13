@@ -143,6 +143,11 @@ export class AirwallexError extends Error {
   }
 }
 
+/** GET /api/v1/beneficiaries/{id}, projected to the names and the last 4 of the account. No full account number. */
+export interface BeneficiaryView { id: string; companyName: string; accountName: string; accountLast4: string; nickname?: string }
+
+export interface BeneficiaryCorrection { companyName: string; accountName: string }
+
 export interface AirwallexClient {
   readonly mode: "mock" | "live";
   getTransfer(id: string): Promise<Transfer>;
@@ -157,4 +162,8 @@ export interface AirwallexClient {
   findConversionByRequestId(requestId: string): Promise<Conversion | null>;
   /** Sandbox only: POST /api/v1/simulation/transfers/{id}/transition */
   simulateTransferTransition(id: string, nextStatus: TransferStatus, failureType?: string): Promise<Transfer>;
+  /** GET /api/v1/beneficiaries/{id} */
+  getBeneficiary(id: string): Promise<BeneficiaryView>;
+  /** POST /api/v1/beneficiaries/{id}/update. Sends the stored beneficiary body with the corrected names. */
+  updateBeneficiary(id: string, fix: BeneficiaryCorrection): Promise<BeneficiaryView>;
 }

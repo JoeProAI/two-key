@@ -1,8 +1,8 @@
-import type { AirwallexClient } from "./airwallex/types";
+import type { AirwallexClient, Balance, Transfer } from "./airwallex/types";
 import * as fx from "./airwallex/fixtures";
 import { MemoryLedger } from "./ledger/memory";
 import { WebhookInbox } from "./webhooks/inbox";
-import type { Situation } from "./agents/situation";
+import { failureCode, payeeMismatch, type Situation } from "./agents/situation";
 import type { Finding } from "./agents/wringer";
 import type { Decision, Proposal } from "./ledger/types";
 import { plan } from "./agents/planner";
@@ -24,7 +24,21 @@ export function snapEvidence(situation: Situation): string {
 }
 
 /** Scripted demo: $40k supplier transfer failed, duplicate + out-of-order webhooks, EUR shortfall, deferred payout, one tap. */
-export async function runDemo(awx: AirwallexClient, opts: { approver?: string; now?: number; thresholdUsd?: number; ledger?: MemoryLedger; depositUsd?: number; stopOnBlock?: boolean; agents?: { env?: NodeJS.ProcessEnv; chat?: ChatJSON }; deliveries?: typeof fx.demoWebhookDeliveries } = {}) {
+/** Payee and read-back facts for a situation: GET the beneficiary, read the cash, attach the supplier's correction after a payee mismatch. */
+export async function payeeFacts(awx: AirwallexClient, original: Transfer, balances: Balance[]): Promise<Pick<Situation, "beneficiary" | "correction" | "readBack">> {
+  const cash = balances.find((b) => b.currency === original.transfer_currency);
+  const beneficiary = original.beneficiary_id ? await awx.getBeneficiary(original.beneficiary_id).catch(() => undefined) : undefined;
+  return {
+    beneficiary,
+    correction: payeeMismatch(original) ? { ...fx.supplierCorrection } : undefined,
+    readBack: {
+      transferId: original.id, status: original.status, failureCode: failureCode(original), currency: original.transfer_currency,
+      available: cash?.available_amount ?? 0, pending: cash?.pending_amount ?? 0, reserved: cash?.reserved_amount ?? 0,
+    },
+  };
+}
+
+export async function runDemo(awx: AirwallexClient, opts: { approver?: string; now?: number; thresholdUsd?: number; ledger?: MemoryLedger; depositUsd?: number; stopOnBlock?: boolean; correction?: typeof fx.supplierCorrection | null; agents?: { env?: NodeJS.ProcessEnv; chat?: ChatJSON }; deliveries?: typeof fx.demoWebhookDeliveries } = {}) {
   const deliveries = opts.deliveries ?? fx.demoWebhookDeliveries;
   const now = opts.now ?? fx.T0;
   const ledger = opts.ledger ?? new MemoryLedger();
@@ -37,14 +51,25 @@ export async function runDemo(awx: AirwallexClient, opts: { approver?: string; n
   const original = await awx.getTransfer(fx.ORIGINAL_TRANSFER_ID); // GET /api/v1/transfers/{id}
   const failed = deliveries.filter((e) => e.name === "payout.transfer.failed");
 
+  const balances = await awx.getBalances(); // GET /api/v1/balances/current
+  const cash = balances.find((b) => b.currency === original.transfer_currency);
+  const readBack = {
+    transferId: original.id, status: original.status, failureCode: failureCode(original), currency: original.transfer_currency,
+    available: cash?.available_amount ?? 0, pending: cash?.pending_amount ?? 0, reserved: cash?.reserved_amount ?? 0,
+  };
+  const beneficiary = original.beneficiary_id ? await awx.getBeneficiary(original.beneficiary_id).catch(() => undefined) : undefined; // GET /api/v1/beneficiaries/{id}
+  const correction = opts.correction === null ? undefined : opts.correction ?? (payeeMismatch(original) ? fx.supplierCorrection : undefined);
+  ledger.evidence.push({ intentId: intent.id, line: `Read-back: GET /api/v1/transfers/${original.id} is ${readBack.status}${readBack.failureCode ? ` (${readBack.failureCode})` : ""}. GET /api/v1/balances/current shows ${readBack.currency} pending ${readBack.pending} and reserved ${readBack.reserved}, so the original holds no money.` });
+  if (correction) ledger.evidence.push({ intentId: intent.id, line: `Supplier confirmed the legal account name "${correction.accountName}" for the account ending ${correction.accountLast4} (${correction.source}). The stored payee says "${beneficiary?.accountName ?? "unknown"}".` });
+
   const situation: Situation = {
-    intentId: intent.id, now, original,
+    intentId: intent.id, now, original, beneficiary, correction, readBack,
     webhook: {
       statusByCreatedAt: inbox.status(original.id), statusByArrival: inbox.statusByArrival(original.id),
       sawFailedEvent: inbox.timeline(original.id).some((e) => e.name === "payout.transfer.failed"),
       failedDeliveries: failed.length, uniqueFailedEvents: new Set(failed.map((e) => e.id)).size, duplicates: inbox.duplicates(),
     },
-    balances: await awx.getBalances(), // GET /api/v1/balances/current
+    balances,
     reserve: { currency: "USD", amount: fx.RESERVE_USD },
     queuedPayouts: [{ ...fx.queuedPayout }],
     approvalThresholdUsd: opts.thresholdUsd ?? 10000,
@@ -117,6 +142,7 @@ export function arcLines(ledger: MemoryLedger, intentId: string, evidence?: stri
   const last = props.at(-1)!;
   const blocks = ledger.objections.filter((o) => o.proposalId === first.id && o.severity === "block").map((o) => o.check);
   const info = [blocks.length ? `the Wringer blocked round ${first.round} on ${blocks.join(", ")}.` : `the Wringer raised no block on round ${first.round}.`];
+  for (const e of ledger.evidence.filter((x) => x.intentId === intentId)) info.push(e.line);
   if (evidence) info.push(evidence.replace(/^Evidence: /, ""));
   const lastDecision = ledger.decisions.find((d) => d.proposalId === last.id);
   const decided = !lastDecision ? "no decision" : lastDecision.humanApprovedBy ? `approved by ${lastDecision.humanApprovedBy}` : lastDecision.status;

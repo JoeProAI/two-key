@@ -162,6 +162,7 @@ const action = v.union(
   v.object({ kind: v.literal("retry_transfer"), originalTransferId: v.string(), amount: v.number(), currency: v.string(), beneficiaryId: v.string(), reference: v.string(), requestId: v.string() }),
   v.object({ kind: v.literal("fx_conversion"), buyCurrency: v.string(), sellCurrency: v.string(), buyAmount: v.number(), quoteId: v.string(), quoteValidToAt: v.string(), requestId: v.string() }),
   v.object({ kind: v.literal("defer_payout"), payoutId: v.string(), amount: v.number(), currency: v.string(), until: v.string() }),
+  v.object({ kind: v.literal("correct_beneficiary"), beneficiaryId: v.string(), companyName: v.string(), accountName: v.string(), requestId: v.string() }),
 );
 
 /** Replace the narrative rows for one intent and upsert executions by request_id with the finish rules,

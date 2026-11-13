@@ -94,6 +94,14 @@ function clock(ms: number | undefined): string | undefined {
 }
 
 function actionRow(action: Action, quotes?: Map<string, Quote>): DeskRound["actions"][number] {
+  if (action.kind === "correct_beneficiary") {
+    return {
+      kind: "Correct payee",
+      detail: `Set the payee name to ${action.companyName}`,
+      requestId: action.requestId,
+      beneficiaryId: action.beneficiaryId,
+    };
+  }
   if (action.kind === "retry_transfer") {
     return {
       kind: "Retry transfer",
@@ -194,6 +202,11 @@ function executionRows(rows: { actionKind: string; requestId: string; result: st
   });
 }
 
+function readBackText(): string {
+  const usd = fx.balances.find((b) => b.currency === fx.originalTransfer.transfer_currency);
+  return `GET /api/v1/transfers/{id} reads ${fx.originalTransfer.status}. ${fx.originalTransfer.transfer_currency} pending ${fmt(usd?.pending_amount ?? 0)}, reserved ${fmt(usd?.reserved_amount ?? 0)}. The original holds no money.`;
+}
+
 function baseView(partial: Partial<DeskView> & Pick<DeskView, "phase" | "rounds" | "receipt" | "canPlan" | "canApprove" | "canReplay">): DeskView {
   const requestId = canonicalRetryId(INTENT_ID, fx.originalTransfer);
   const view: DeskView = {
@@ -204,6 +217,11 @@ function baseView(partial: Partial<DeskView> & Pick<DeskView, "phase" | "rounds"
     reference: fx.originalTransfer.reference ?? "",
     failure: failureText(),
     beneficiary: fx.SUPPLIER_BENEFICIARY_ID,
+    payeeStored: fx.supplierBeneficiary.accountName,
+    payeeConfirmed: fx.supplierCorrection.accountName,
+    payeeLast4: fx.supplierCorrection.accountLast4,
+    payeeSource: fx.supplierCorrection.source,
+    readBack: readBackText(),
     originalRequestId: fx.ORIGINAL_REQUEST_ID,
     balances: fx.balances.map((b) => ({ currency: b.currency, available: fmt(b.available_amount) })),
     reserve: fmt(fx.RESERVE_USD),
@@ -216,6 +234,7 @@ function baseView(partial: Partial<DeskView> & Pick<DeskView, "phase" | "rounds"
     transferCalls: partial.transferCalls ?? partial.transfersCreated ?? null,
     transfersSettled: partial.transfersSettled ?? null,
     conversionCalls: partial.conversionCalls ?? partial.conversionsCreated ?? null,
+    payeeUpdates: partial.payeeUpdates ?? null,
     conversionsSettled: partial.conversionsSettled ?? null,
     ledgerLabel: ledgerLabel(ledgerBackend() === "convex" ? "convex" : "memory"),
     modelLabel: modelLabel(),
@@ -269,6 +288,8 @@ function viewFromSession(s: Session): DeskView {
     transfersSettled: s.awx.settled.transfers,
     conversionCalls: s.awx.calls.createConversion,
     conversionsSettled: s.awx.settled.conversions,
+    payeeUpdates: s.awx.calls.updateBeneficiary,
+    payeeStored: s.awx.beneficiaries.get(fx.SUPPLIER_BENEFICIARY_ID)?.accountName ?? fx.supplierBeneficiary.accountName,
     ledgerLabel: ledgerLabel(s.ledgerKind),
     error: s.error ?? store.bootError,
     warning: s.warning,
@@ -403,7 +424,7 @@ export async function approveSession(who: string, access: DeskAccess = NO_ACCESS
   await project(current);
 }
 
-const ACTION_NAMES: Record<Action["kind"], string> = { retry_transfer: "The retry transfer", fx_conversion: "The FX conversion", defer_payout: "The payout deferral" };
+const ACTION_NAMES: Record<Action["kind"], string> = { correct_beneficiary: "The payee correction", retry_transfer: "The retry transfer", fx_conversion: "The FX conversion", defer_payout: "The payout deferral" };
 
 function evidenceNow(awx: { balances: { currency: string; available_amount: number }[] }, proposal: { actions: Action[] }): string {
   const inbox = new WebhookInbox();

@@ -134,8 +134,18 @@ function Incident({ view }: { view: DeskView }) {
         <Term label="Failure" value={view.failure || UNKNOWN} unknown={!view.failure} />
         <Term label="Original request id" value={view.originalRequestId} copy />
         <Term label="Beneficiary id" value={view.beneficiary || UNKNOWN} unknown={!view.beneficiary} copy={Boolean(view.beneficiary)} />
-        <Term label="Destination account name" value={UNKNOWN} unknown />
+        <Term label="Stored account name" value={view.payeeStored} />
       </dl>
+      <div className="newinfo" aria-labelledby="newinfo-title">
+        <h3 id="newinfo-title">New information</h3>
+        <dl className="terms">
+          <Term label="Read-back" value={view.readBack} />
+          <Term label="Supplier confirmed name" value={view.payeeConfirmed} />
+          <Term label="Account" value={`Same account, ending ${view.payeeLast4}`} />
+          <Term label="Source" value={view.payeeSource} />
+        </dl>
+        <p className="fine">Fictional supplier. The plan updates the payee before any retry. Code blocks a retry to an unchanged payee.</p>
+      </div>
       {view.webhooks.length ? (
         <ul className="hooks">
           {view.webhooks.map((hook, index) => (

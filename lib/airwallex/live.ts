@@ -2,6 +2,8 @@ import "server-only";
 import {
   AirwallexError,
   type AirwallexClient,
+  type BeneficiaryCorrection,
+  type BeneficiaryView,
   type Balance,
   type Conversion,
   type ConversionList,
@@ -160,6 +162,20 @@ export function createLiveClient(env: NodeJS.ProcessEnv = process.env, fetchImpl
         ...(failureType ? { failure_type: failureType } : {}),
       }),
 
+    // GET /api/v1/beneficiaries/{id}. Projected: names and the last 4 of the account only.
+    async getBeneficiary(id: string) {
+      return projectBeneficiary(await call<RawBeneficiaryFull>("GET", `/api/v1/beneficiaries/${encodeURIComponent(id)}`));
+    },
+
+    // POST /api/v1/beneficiaries/{id}/update. The body is the stored beneficiary with only the two names changed.
+    async updateBeneficiary(id: string, fix: BeneficiaryCorrection) {
+      const raw = await call<RawBeneficiaryFull>("GET", `/api/v1/beneficiaries/${encodeURIComponent(id)}`);
+      const beneficiary = { ...(raw.beneficiary ?? {}), company_name: fix.companyName, bank_details: { ...(raw.beneficiary?.bank_details ?? {}), account_name: fix.accountName } };
+      const body = { beneficiary, transfer_methods: raw.transfer_methods ?? [], ...(raw.nickname ? { nickname: raw.nickname } : {}), ...(raw.payer_entity_type ? { payer_entity_type: raw.payer_entity_type } : {}) };
+      const updated = projectBeneficiary(await call<RawBeneficiaryFull>("POST", `/api/v1/beneficiaries/${encodeURIComponent(id)}/update`, body));
+      return { ...updated, id: updated.id ?? id };
+    },
+
     // Proves POST /api/v1/authentication/login without returning the token.
     async authenticate() {
       await login();
@@ -271,6 +287,25 @@ interface ListBody<T> { items?: T[] }
 function unwrapItems<T>(body: ListBody<T> | T[] | null | undefined): T[] {
   if (Array.isArray(body)) return body;
   return body?.items ?? [];
+}
+
+interface RawBeneficiaryFull {
+  id: string;
+  nickname?: string;
+  payer_entity_type?: string;
+  transfer_methods?: string[];
+  beneficiary?: { company_name?: string; bank_details?: { account_name?: string; account_number?: string; iban?: string; [k: string]: unknown }; [k: string]: unknown };
+}
+
+function projectBeneficiary(raw: RawBeneficiaryFull): BeneficiaryView {
+  const acct = raw.beneficiary?.bank_details?.account_number ?? raw.beneficiary?.bank_details?.iban ?? "";
+  return {
+    id: raw.id,
+    companyName: raw.beneficiary?.company_name ?? "",
+    accountName: raw.beneficiary?.bank_details?.account_name ?? "",
+    accountLast4: acct.slice(-4),
+    nickname: raw.nickname,
+  };
 }
 
 interface RawBeneficiary {

@@ -11,7 +11,7 @@ import { evidenceDigest, planDigest } from "../receipt/bind";
 import { reconcileSettled } from "../agents/reconcile";
 import { applyAvailable } from "../money";
 import { MemoryLedger } from "../ledger/memory";
-import { runDemo } from "../scenario";
+import { payeeFacts, runDemo } from "../scenario";
 import { runApprovalDemo, runStaleQuoteDemo } from "../scenarios";
 import { anonymousDeskRejected } from "../desk/gate";
 import type { Situation } from "../agents/situation";
@@ -62,16 +62,18 @@ async function northwindSituation(awx: ReturnType<typeof createMockClient>): Pro
   for (const e of fx.demoWebhookDeliveries) inbox.ingest(e);
   const original = await awx.getTransfer(fx.ORIGINAL_TRANSFER_ID);
   const failed = fx.demoWebhookDeliveries.filter((e) => e.name === "payout.transfer.failed");
+  const balances = await awx.getBalances();
   return {
     intentId: "intent_inv2291", now: fx.T0, original,
     webhook: {
       statusByCreatedAt: inbox.status(original.id), statusByArrival: inbox.statusByArrival(original.id),
       sawFailedEvent: true, failedDeliveries: failed.length, uniqueFailedEvents: new Set(failed.map((e) => e.id)).size, duplicates: inbox.duplicates(),
     },
-    balances: await awx.getBalances(),
+    balances,
     reserve: { currency: "USD", amount: fx.RESERVE_USD },
     queuedPayouts: [{ ...fx.queuedPayout }],
     approvalThresholdUsd: 10000,
+    ...(await payeeFacts(awx, original, balances)),
   };
 }
 
@@ -145,6 +147,21 @@ export async function runMatrix(): Promise<MatrixRow[]> {
       ...row("reserve breach", blocked && awx.calls.createTransfer === 0, `reserve_breach ${blocked}, transfers ${awx.calls.createTransfer}`, awx),
       balancesBefore: before,
       balancesAfter: before,
+    });
+  }
+
+  {
+    const awx = createMockClient();
+    const before = money(awx.balances);
+    const situation = await northwindSituation(awx);
+    const fixedPlan = (await plan(situation, 2, ["reserve_breach"])).actions;
+    const unchanged = fixedPlan.filter((a) => a.kind !== "correct_beneficiary");
+    const blocked = wring(situation, unchanged).some((f) => f.check === "beneficiary_unchanged_after_mismatch" && f.severity === "block");
+    const clears = !wring(situation, fixedPlan).some((f) => f.check.startsWith("beneficiary_"));
+    rows.push({
+      ...row("retry to unchanged payee", blocked && clears && awx.calls.createTransfer === 0 && awx.calls.updateBeneficiary === 0, `unchanged blocked ${blocked}, corrected clears ${clears}, transfers ${awx.calls.createTransfer}`, awx),
+      balancesBefore: before,
+      balancesAfter: money(awx.balances),
     });
   }
 
@@ -365,7 +382,7 @@ export async function runMatrix(): Promise<MatrixRow[]> {
     const awx = createMockClient();
     const first = await runDemo(awx, { approver: "joe" });
     const snap = snapshotMock(awx);
-    const fresh = createMockClient({ balances: snap.balances, transfers: snap.transfers, conversions: snap.conversions, quotes: snap.quotes });
+    const fresh = createMockClient({ balances: snap.balances, transfers: snap.transfers, conversions: snap.conversions, beneficiaries: snap.beneficiaries, quotes: snap.quotes });
     const actions = first.rounds.at(-1)!.proposal.actions;
     const ledger = new MemoryLedger();
     const out = await reconcileSettled(fresh, "intent_inv2291", actions, ledger, "dec_snap", fx.T0);

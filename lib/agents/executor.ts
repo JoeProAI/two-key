@@ -59,7 +59,7 @@ export async function execute(ledger: MemoryLedger, awx: AirwallexClient, decisi
   if (decision.boundDigest && decision.boundDigest !== planDigest(proposal.actions)) {
     throw new Error("The approved plan no longer matches the bound actions. Re-plan.");
   }
-  const order: Action["kind"][] = ["defer_payout", "fx_conversion", "retry_transfer"]; // fund before paying
+  const order: Action["kind"][] = ["defer_payout", "correct_beneficiary", "fx_conversion", "retry_transfer"]; // fix the payee and fund before paying
   const actions = [...proposal.actions].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
   const owner = randomUUID();
   const out: Execution[] = [];
@@ -100,6 +100,16 @@ export async function execute(ledger: MemoryLedger, awx: AirwallexClient, decisi
       } else if (a.kind === "defer_payout") {
         deferredPayouts.add(a.payoutId);
         response = { deferred: a.payoutId, until: a.until };
+      } else if (a.kind === "correct_beneficiary") {
+        // GET /api/v1/beneficiaries/{id} first: a payee that already carries the corrected names is not updated twice.
+        const current = await awx.getBeneficiary(a.beneficiaryId);
+        if (current.companyName === a.companyName && current.accountName === a.accountName) {
+          result = "already_done";
+          response = current;
+        } else {
+          response = await awx.updateBeneficiary(a.beneficiaryId, { companyName: a.companyName, accountName: a.accountName }); // POST /api/v1/beneficiaries/{id}/update
+        }
+        airwallexId = a.beneficiaryId;
       } else if (a.kind === "fx_conversion") {
         // Look the request_id up first (GET /api/v1/fx/conversions?request_id=), like transfers do.
         // A ledger lost between runs must never turn into a second conversion.
@@ -128,6 +138,11 @@ export async function execute(ledger: MemoryLedger, awx: AirwallexClient, decisi
         // Re-read the original right before paying (webhooks may be stale).
         const orig = await awx.getTransfer(a.originalTransferId);
         if (orig.status !== "CANCELLED" && orig.status !== "FAILED") throw new Error(`original is ${orig.status}, refusing to retry`);
+        const fix = proposal.actions.find((x) => x.kind === "correct_beneficiary" && x.beneficiaryId === a.beneficiaryId);
+        if (fix && fix.kind === "correct_beneficiary") {
+          const payee = await awx.getBeneficiary(a.beneficiaryId);
+          if (payee.companyName !== fix.companyName || payee.accountName !== fix.accountName) throw new Error("The payee does not carry the corrected names. No transfer was sent.");
+        }
         const existing = await awx.findTransferByRequestId(a.requestId);
         if (existing) {
           if (!transferAgrees(a, existing)) throw new Error("This request_id already completed a different payload. That receipt is not this action. No new send.");
