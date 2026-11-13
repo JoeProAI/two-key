@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { stableRequestId } from "@/lib/requestId";
+import { canonicalRetryId, fxRequestId, stableRequestId } from "@/lib/requestId";
+import * as fx from "@/lib/airwallex/fixtures";
 import { createMockClient } from "@/lib/airwallex/mock";
 
 describe("idempotent request_id", () => {
@@ -7,6 +8,9 @@ describe("idempotent request_id", () => {
     expect(stableRequestId("i1", "retry_transfer")).toBe(stableRequestId("i1", "retry_transfer"));
     expect(stableRequestId("i1", "retry_transfer")).not.toBe(stableRequestId("i2", "retry_transfer"));
     expect(stableRequestId("i1", "retry_transfer")).not.toBe(stableRequestId("i1", "fx_conversion"));
+    expect(fxRequestId("intent_inv2291", 28000, "USD", "EUR")).toBe(fxRequestId("intent_inv2291", 28000, "USD", "EUR"));
+    expect(fxRequestId("intent_inv2291", 28000, "USD", "EUR")).not.toBe(fxRequestId("intent_inv2291", 40000, "USD", "EUR"));
+    expect(canonicalRetryId("intent_inv2291", fx.originalTransfer)).not.toBe(stableRequestId("intent_inv2291", "retry_transfer", "0"));
   });
   it("a reused request_id is rejected like Airwallex does", async () => {
     const awx = createMockClient();

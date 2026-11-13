@@ -21,3 +21,12 @@ export function round(amount: number, currency: string): number {
   const f = 10 ** decimalsFor(currency);
   return Math.round(amount * f) / f;
 }
+
+/** Move available funds and recompute total. Pending and reserved are left as they are.
+ *  total_amount = available + pending + reserved. This mock does not park money in those buckets. */
+export function applyAvailable(balance: { currency: string; available_amount: number; pending_amount?: number; reserved_amount?: number; total_amount?: number }, delta: number) {
+  balance.available_amount = round(balance.available_amount + delta, balance.currency);
+  const pending = balance.pending_amount ?? 0;
+  const reserved = balance.reserved_amount ?? 0;
+  balance.total_amount = round(balance.available_amount + pending + reserved, balance.currency);
+}

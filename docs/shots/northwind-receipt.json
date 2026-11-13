@@ -1,0 +1,262 @@
+{
+  "schema": "two-key.receipt.v1",
+  "mode": "MOCK",
+  "fixture": "main",
+  "gitSha": "unknown",
+  "runId": "demo-main",
+  "intent": {
+    "id": "intent_inv2291",
+    "title": "Pay Northwind Steel INV-2291 (USD 40,000) once"
+  },
+  "evidence": {
+    "balancesBefore": [
+      {
+        "currency": "USD",
+        "available": 22000
+      },
+      {
+        "currency": "EUR",
+        "available": 60000
+      }
+    ],
+    "reserve": {
+      "currency": "USD",
+      "amount": 10000
+    },
+    "queued": [
+      {
+        "id": "queued_marketing_7000",
+        "amount": 7000,
+        "currency": "USD",
+        "label": "Agency retainer, due in 9 days"
+      }
+    ],
+    "webhooks": [
+      {
+        "id": "evt_failed_01",
+        "name": "payout.transfer.failed",
+        "createdAt": "2026-11-02T13:50:00+0000",
+        "status": "FAILED",
+        "deliveries": 2
+      },
+      {
+        "id": "evt_cancel_02",
+        "name": "payout.transfer.cancelled",
+        "createdAt": "2026-11-02T13:50:10+0000",
+        "status": "CANCELLED",
+        "deliveries": 1
+      },
+      {
+        "id": "evt_proc_00",
+        "name": "payout.transfer.processing",
+        "createdAt": "2026-11-02T13:40:00+0000",
+        "status": "PROCESSING",
+        "deliveries": 1
+      }
+    ],
+    "quote": {
+      "id": "8637ae3e-c2a9-4582-b277-5a2fd82ddfb4",
+      "validTo": "2026-11-02T14:15:00+0000",
+      "buyAmount": 28000,
+      "sellCurrency": "EUR"
+    }
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "summary": "Retry USD 40000 to the supplier (2 failure notices received).",
+      "actions": [
+        {
+          "kind": "retry_transfer",
+          "originalTransferId": "43217eec-6053-4fe6-b[redacted-number]",
+          "amount": 40000,
+          "currency": "USD",
+          "beneficiaryId": "9a45987e-cffc-4f0a-81d[redacted-number]",
+          "reference": "INV-2291 Northwind Steel",
+          "requestId": "c624d34b-1b4c-cbfb-723a-e3f5d031cd83"
+        },
+        {
+          "kind": "retry_transfer",
+          "originalTransferId": "43217eec-6053-4fe6-b[redacted-number]",
+          "amount": 40000,
+          "currency": "USD",
+          "beneficiaryId": "9a45987e-cffc-4f0a-81d[redacted-number]",
+          "reference": "INV-2291 Northwind Steel",
+          "requestId": "92a1f546-3b61-991c-ce36-09a72f35bbd3"
+        }
+      ],
+      "objections": [
+        {
+          "code": "duplicate_webhook",
+          "severity": "note",
+          "detail": "Event(s) evt_failed_01 x2 delivered more than once; counted once."
+        },
+        {
+          "code": "double_payment",
+          "severity": "block",
+          "detail": "2 retries proposed for one failed transfer (1 unique failure event). That pays the supplier 2 times."
+        },
+        {
+          "code": "unstable_request_id",
+          "severity": "block",
+          "detail": "Retry uses request_id 92a1f546-3b61-991c-ce36-09a72f35bbd3, not the intent's stable id."
+        },
+        {
+          "code": "out_of_order_webhook",
+          "severity": "note",
+          "detail": "Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}."
+        },
+        {
+          "code": "beneficiary_unchanged_after_mismatch",
+          "severity": "block",
+          "detail": "The original failed on the payee name or account (INVALID_ACCOUNT_NAME_OR_NUMBER). This retry goes to beneficiary 9a45987e-cffc-4f0a-81d[redacted-number] unchanged. It would fail the same way."
+        },
+        {
+          "code": "reserve_breach",
+          "severity": "block",
+          "detail": "USD would end at -65000 after queued payouts, below the 10000 reserve."
+        }
+      ],
+      "decision": "blocked",
+      "approvedBy": null,
+      "boundDigest": "ab2108c42bc4498ee4b78609d4f2bd5b8495abd647e5c5520f643a59d722ef74",
+      "evidenceDigest": "46bbb2f5f3741ff6aa49ad62ae15c19dcf44d1fe61dd1951e2d354b9be1781bf"
+    },
+    {
+      "round": 2,
+      "summary": "Correct the payee name to Northwind Steel Fabrication LLC as the supplier confirmed, retry once with a stable request_id, buy 28000 USD with EUR at the quoted rate, defer 1 low-priority payout(s).",
+      "actions": [
+        {
+          "kind": "fx_conversion",
+          "buyCurrency": "USD",
+          "sellCurrency": "EUR",
+          "buyAmount": 28000,
+          "quoteId": "8637ae3e-c2a9-4582-b277-5a2fd82ddfb4",
+          "quoteValidToAt": "2026-11-02T14:15:00+0000",
+          "requestId": "e57286ec-aede-36bc-62c1-ed72e395d09d"
+        },
+        {
+          "kind": "correct_beneficiary",
+          "beneficiaryId": "9a45987e-cffc-4f0a-81d[redacted-number]",
+          "companyName": "Northwind Steel Fabrication LLC",
+          "accountName": "Northwind Steel Fabrication LLC",
+          "requestId": "570f0729-3bee-e5fa-2ff4-0dd1e7bc75c8"
+        },
+        {
+          "kind": "retry_transfer",
+          "originalTransferId": "43217eec-6053-4fe6-b[redacted-number]",
+          "amount": 40000,
+          "currency": "USD",
+          "beneficiaryId": "9a45987e-cffc-4f0a-81d[redacted-number]",
+          "reference": "INV-2291 Northwind Steel",
+          "requestId": "c624d34b-1b4c-cbfb-723a-e3f5d031cd83"
+        },
+        {
+          "kind": "defer_payout",
+          "payoutId": "queued_marketing_7000",
+          "amount": 7000,
+          "currency": "USD",
+          "until": "after supplier settles"
+        }
+      ],
+      "objections": [
+        {
+          "code": "duplicate_webhook",
+          "severity": "note",
+          "detail": "Event(s) evt_failed_01 x2 delivered more than once; counted once."
+        },
+        {
+          "code": "out_of_order_webhook",
+          "severity": "note",
+          "detail": "Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}."
+        }
+      ],
+      "decision": "approved",
+      "approvedBy": "joe",
+      "boundDigest": "f96c0e0bffc817c8817055e82111f3fea7a062b38f0d99c4b8a20683cbb62903",
+      "evidenceDigest": "531e45a895bf8e4fe3289cb3a9f92c1f6c4b9085c89c340f6a8a207eb40da828"
+    }
+  ],
+  "executions": [
+    {
+      "action": "defer_payout",
+      "requestId": "defer:queued_marketing_7000",
+      "result": "ok",
+      "providerId": null,
+      "providerCall": "recorded",
+      "note": null
+    },
+    {
+      "action": "correct_beneficiary",
+      "requestId": "570f0729-3bee-e5fa-2ff4-0dd1e7bc75c8",
+      "result": "ok",
+      "providerId": "9a45987e-cffc-4f0a-81d[redacted-number]",
+      "providerCall": "recorded",
+      "note": null
+    },
+    {
+      "action": "fx_conversion",
+      "requestId": "e57286ec-aede-36bc-62c1-ed72e395d09d",
+      "result": "ok",
+      "providerId": "f6c222ae-9a02-456c-bcca-44d3edcaa21f",
+      "providerCall": "recorded",
+      "note": null
+    },
+    {
+      "action": "retry_transfer",
+      "requestId": "c624d34b-1b4c-cbfb-723a-e3f5d031cd83",
+      "result": "ok",
+      "providerId": "40febfca-61b4-4da5-bfbd-bf481081118c",
+      "providerCall": "recorded",
+      "note": null
+    }
+  ],
+  "resulting": {
+    "balancesAfter": [
+      {
+        "currency": "USD",
+        "available": 10000,
+        "pending": 0,
+        "reserved": 0,
+        "total": 10000
+      },
+      {
+        "currency": "EUR",
+        "available": 34074.07,
+        "pending": 0,
+        "reserved": 0,
+        "total": 34074.07
+      }
+    ],
+    "transferCalls": 1,
+    "transfersSettled": 1,
+    "conversionCalls": 1,
+    "conversionsSettled": 1,
+    "transfersCreated": 1,
+    "conversionsCreated": 1
+  },
+  "lines": [
+    "Goal: Pay Northwind Steel INV-2291 (USD 40,000) once.",
+    "Plan: round 1. Retry USD 40000 to the supplier (2 failure notices received).",
+    "New information: the Wringer blocked round 1 on double_payment, unstable_request_id, beneficiary_unchanged_after_mismatch, reserve_breach. Read-back: GET /api/v1/transfers/43217eec-6053-4fe6-b[redacted-number] is CANCELLED (INVALID_ACCOUNT_NAME_OR_NUMBER). GET /api/v1/balances/current shows USD pending 0 and reserved 0, so the original holds no money. Supplier confirmed the legal account name \"Northwind Steel Fabrication LLC\" for the account ending 4417 (supplier letter, confirmed by call-back to the number already on file). The stored payee says \"Northwind Steel\".",
+    "Revised decision: round 2. Correct the payee name to Northwind Steel Fabrication LLC as the supplier confirmed, retry once with a stable request_id, buy 28000 USD with EUR at the quoted rate, defer 1 low-priority payout(s). Decision: approved by joe.",
+    "Resulting state: defer_payout ok, correct_beneficiary ok, fx_conversion ok, retry_transfer ok.",
+    "Round 1. Planner: Retry USD 40000 to the supplier (2 failure notices received).",
+    "  Wringer note [duplicate_webhook]: Event(s) evt_failed_01 x2 delivered more than once; counted once.",
+    "  Wringer BLOCK [double_payment]: 2 retries proposed for one failed transfer (1 unique failure event). That pays the supplier 2 times.",
+    "  Wringer BLOCK [unstable_request_id]: Retry uses request_id 92a1f546-3b61-991c-ce36-09a72f35bbd3, not the intent's stable id.",
+    "  Wringer note [out_of_order_webhook]: Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}.",
+    "  Wringer BLOCK [beneficiary_unchanged_after_mismatch]: The original failed on the payee name or account (INVALID_ACCOUNT_NAME_OR_NUMBER). This retry goes to beneficiary 9a45987e-cffc-4f0a-81d[redacted-number] unchanged. It would fail the same way.",
+    "  Wringer BLOCK [reserve_breach]: USD would end at -65000 after queued payouts, below the 10000 reserve.",
+    "  Decision: blocked",
+    "Round 2. Planner: Correct the payee name to Northwind Steel Fabrication LLC as the supplier confirmed, retry once with a stable request_id, buy 28000 USD with EUR at the quoted rate, defer 1 low-priority payout(s).",
+    "  Wringer note [duplicate_webhook]: Event(s) evt_failed_01 x2 delivered more than once; counted once.",
+    "  Wringer note [out_of_order_webhook]: Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}.",
+    "  Decision: approved, approved by joe",
+    "  Executed defer_payout request_id=defer:queued_marketing_7000: ok",
+    "  Executed correct_beneficiary request_id=570f0729-3bee-e5fa-2ff4-0dd1e7bc75c8: ok (9a45987e-cffc-4f0a-81d[redacted-number])",
+    "  Executed fx_conversion request_id=e57286ec-aede-36bc-62c1-ed72e395d09d: ok (f6c222ae-9a02-456c-bcca-44d3edcaa21f)",
+    "  Executed retry_transfer request_id=c624d34b-1b4c-cbfb-723a-e3f5d031cd83: ok (40febfca-61b4-4da5-bfbd-bf481081118c)"
+  ],
+  "note": "MOCK FIXTURE. No live money moved. transferCalls and conversionCalls count attempts. transfersSettled and conversionsSettled count objects this mock stored. In this mock an accepted create settles the wallet immediately, pending and reserved stay 0, and total equals available plus those. The 10000 USD floor is a Two-Key rule, not reserved_amount. This is not a live Airwallex balance claim."
+}

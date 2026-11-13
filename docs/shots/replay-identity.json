@@ -1,0 +1,28 @@
+{
+  "note": "Harness output for this replay scenario only. Pass 2 is a fresh process. Provider ids match pass 1 here. They are not the main scenario's ids. A later process mints new provider ids. These request ids stay.",
+  "requestIds": {
+    "fx": "e57286ec-aede-36bc-62c1-ed72e395d09d",
+    "transfer": "c624d34b-1b4c-cbfb-723a-e3f5d031cd83"
+  },
+  "payload": {
+    "buyAmount": 28000,
+    "transferAmount": 40000
+  },
+  "pass1": {
+    "fxProvider": "540724ce-20a1-4256-a0f0-08f3f937e45f",
+    "transferProvider": "e589c21b-4656-491f-96d5-4f16515634a9",
+    "fxResult": "ok",
+    "transferResult": "ok"
+  },
+  "pass2": {
+    "fxProvider": "540724ce-20a1-4256-a0f0-08f3f937e45f",
+    "transferProvider": "e589c21b-4656-491f-96d5-4f16515634a9",
+    "fxResult": "already_done",
+    "transferResult": "already_done",
+    "buyAmount": 28000,
+    "transferAmount": 40000,
+    "transferCalls": 0,
+    "conversionCalls": 0,
+    "quoteCalls": 0
+  }
+}

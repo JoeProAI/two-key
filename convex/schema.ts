@@ -8,6 +8,7 @@ const action = v.union(
   v.object({ kind: v.literal("retry_transfer"), originalTransferId: v.string(), amount: v.number(), currency: v.string(), beneficiaryId: v.string(), reference: v.string(), requestId: v.string() }),
   v.object({ kind: v.literal("fx_conversion"), buyCurrency: v.string(), sellCurrency: v.string(), buyAmount: v.number(), quoteId: v.string(), quoteValidToAt: v.string(), requestId: v.string() }),
   v.object({ kind: v.literal("defer_payout"), payoutId: v.string(), amount: v.number(), currency: v.string(), until: v.string() }),
+  v.object({ kind: v.literal("correct_beneficiary"), beneficiaryId: v.string(), companyName: v.string(), accountName: v.string(), requestId: v.string() }),
 );
 
 const decisionStatus = v.union(v.literal("blocked"), v.literal("awaiting_human"), v.literal("approved"), v.literal("expired"));
@@ -47,6 +48,8 @@ export default defineSchema({
     humanApprovedBy: v.optional(v.string()),
     humanApprovedAt: v.optional(v.number()),
     expiredAt: v.optional(v.number()),
+    boundDigest: v.optional(v.string()),
+    evidenceDigest: v.optional(v.string()),
     status: decisionStatus,
     createdAt: v.number(),
   }).index("by_key", ["key"]).index("by_proposal", ["proposalKey"]),

@@ -2,15 +2,20 @@ import "server-only";
 import { createMockClient } from "../airwallex/mock";
 import * as fx from "../airwallex/fixtures";
 import type { Action } from "../ledger/types";
+import type { Quote } from "../airwallex/types";
 import { MemoryLedger } from "../ledger/memory";
-import { stableRequestId } from "../requestId";
+import { canonicalRetryId } from "../requestId";
+import { reconcileSettled } from "../agents/reconcile";
 import { buildReceipt, runDemo } from "../scenario";
 import { approve, execute } from "../agents/executor";
+import { evidenceDigest } from "../receipt/bind";
+import { gitSha } from "../receipt/pack";
+import { WebhookInbox } from "../webhooks/inbox";
 import { agentMode } from "../agents/openrouter";
 import { ledgerBackend, loadIncident, syncIncident } from "../ledger/remote";
 import { ledgerFromRemote, type RemoteIncident } from "../ledger/payload";
 import { assertDeskAccess, gateState, type DeskAccess, type GateState } from "./gate";
-import type { DeskRound, DeskView, DeskWebhook } from "./types";
+import type { DeskExecution, DeskRound, DeskStation, DeskView, DeskWebhook } from "./types";
 
 const NO_ACCESS: DeskAccess = { unlocked: false };
 
@@ -25,6 +30,7 @@ type Session = {
   error: string | null;
   replayed: boolean;
   now: number;
+  balancesBefore: { currency: string; available: string }[];
 };
 
 type DeskGlobal = { session: Session | null; bootError: string | null };
@@ -83,17 +89,47 @@ function webhookRows(): DeskWebhook[] {
   });
 }
 
-function actionRow(action: Action): DeskRound["actions"][number] {
+function clock(ms: number | undefined): string | undefined {
+  return typeof ms === "number" ? new Date(ms).toISOString() : undefined;
+}
+
+function actionRow(action: Action, quotes?: Map<string, Quote>): DeskRound["actions"][number] {
+  if (action.kind === "correct_beneficiary") {
+    return {
+      kind: "Correct payee",
+      detail: `Set the payee name to ${action.companyName}`,
+      requestId: action.requestId,
+      beneficiaryId: action.beneficiaryId,
+    };
+  }
   if (action.kind === "retry_transfer") {
-    return { kind: "Retry transfer", detail: `${action.currency} ${fmt(action.amount)} once`, requestId: action.requestId };
+    return {
+      kind: "Retry transfer",
+      detail: `${action.currency} ${fmt(action.amount)} once`,
+      requestId: action.requestId,
+      beneficiaryId: action.beneficiaryId,
+    };
   }
   if (action.kind === "fx_conversion") {
-    return { kind: "FX conversion", detail: `Buy ${fmt(action.buyAmount)} ${action.buyCurrency} with ${action.sellCurrency}`, requestId: action.requestId };
+    const quote = action.quoteId ? quotes?.get(action.quoteId) : undefined;
+    return {
+      kind: "FX conversion",
+      detail: `Buy ${fmt(action.buyAmount)} ${action.buyCurrency} with ${action.sellCurrency}`,
+      requestId: action.requestId,
+      quoteId: action.quoteId,
+      quoteValidTo: action.quoteValidToAt,
+      buyAmount: fmt(action.buyAmount),
+      buyCurrency: action.buyCurrency,
+      sellCurrency: action.sellCurrency,
+      clientRate: quote ? String(quote.client_rate) : undefined,
+      sellAmount: quote ? fmt(quote.sell_amount) : undefined,
+      quoteValidFrom: quote?.valid_from_at,
+    };
   }
   return { kind: "Defer payout", detail: `${action.currency} ${fmt(action.amount)} held until ${action.until}`, requestId: `defer:${action.payoutId}` };
 }
 
-function roundsFromLedger(ledger: MemoryLedger): DeskRound[] {
+function roundsFromLedger(ledger: MemoryLedger, quotes?: Map<string, Quote>): DeskRound[] {
   return ledger.proposals
     .filter((p) => p.intentId === INTENT_ID)
     .map((p) => {
@@ -103,10 +139,14 @@ function roundsFromLedger(ledger: MemoryLedger): DeskRound[] {
         summary: p.summary,
         decision: decision?.status ?? "open",
         approvedBy: decision?.humanApprovedBy,
-        actions: p.actions.map(actionRow),
+        approvedAt: clock(decision?.humanApprovedAt),
+        boundDigest: decision?.boundDigest,
+        evidenceDigest: decision?.evidenceDigest,
+        decidedAt: clock(decision?.createdAt),
+        actions: p.actions.map((action) => actionRow(action, quotes)),
         findings: ledger.objections
           .filter((o) => o.proposalId === p.id)
-          .map((o) => ({ check: o.check, severity: o.severity, detail: o.detail })),
+          .map((o) => ({ check: o.check, severity: o.severity, detail: o.detail, at: clock(o.createdAt) })),
       };
     });
 }
@@ -127,8 +167,48 @@ function keyCopy(phase: DeskView["phase"], plannerSeated: boolean, wringerSeated
   return "Both keys are seated. One tap pays once.";
 }
 
+function stationsFor(view: Pick<DeskView, "phase" | "rounds" | "blockCount" | "replayed" | "reference" | "balances" | "requestId">): DeskStation[] {
+  const planned = view.rounds.length > 0;
+  const latest = view.rounds.at(-1)?.decision;
+  const cash = view.balances.find((b) => b.currency === "USD")?.available ?? view.balances[0]?.available ?? "";
+  return [
+    { id: "request", label: "Request", state: "clear", detail: view.reference || "INV-2291" },
+    { id: "cash", label: "Cash", state: "clear", detail: `USD ${cash}` },
+    { id: "plan", label: "Plan", state: planned ? "clear" : "empty", detail: planned ? `${view.rounds.length} rounds` : "No plan filed" },
+    { id: "wringer", label: "Wringer", state: !planned ? "empty" : view.blockCount ? "block" : "clear", detail: !planned ? "Waiting" : view.blockCount ? `${view.blockCount} blocks` : "No block" },
+    { id: "approval", label: "Approval", state: view.phase === "paid" ? "clear" : latest === "awaiting_human" ? "hold" : latest === "blocked" ? "block" : latest === "expired" ? "unknown" : "empty", detail: latest ?? "No decision" },
+    { id: "execution", label: "Execution", state: view.phase === "paid" ? "clear" : view.phase === "failed" ? "unknown" : "empty", detail: view.phase === "paid" ? "Recorded" : view.phase === "failed" ? "Not marked paid" : "Not sent" },
+    { id: "balances", label: "Balances", state: view.phase === "paid" || view.phase === "failed" ? "clear" : "hold", detail: view.phase === "paid" ? "After the send" : "Before a send" },
+    { id: "replay", label: "Replay", state: view.replayed ? "clear" : view.phase === "paid" ? "hold" : "empty", detail: view.replayed ? "already_done" : "Not replayed" },
+  ];
+}
+
+function focusFor(view: Pick<DeskView, "phase" | "rounds" | "blockCount" | "replayed">): string {
+  if (view.replayed) return "replay";
+  if (view.phase === "paid" || view.phase === "failed") return "execution";
+  if (view.blockCount) return "wringer";
+  if (view.rounds.at(-1)?.decision === "awaiting_human") return "approval";
+  return "request";
+}
+
+function executionRows(rows: { actionKind: string; requestId: string; result: string; airwallexId?: string; response: unknown }[]): DeskExecution[] {
+  return rows.map((ex) => {
+    const body = ex.response as { providerCall?: string; message?: string } | null;
+    let note: string | null = null;
+    if (body?.providerCall === "issued_outcome_unknown") note = "Outcome unknown. The call was not undone.";
+    else if (ex.result === "error") note = typeof body?.message === "string" ? body.message : "Provider error. Not marked paid.";
+    else if (ex.result === "already_done") note = "Same request id. No new payment.";
+    return { action: ex.actionKind, requestId: ex.requestId, result: ex.result, providerId: ex.airwallexId ?? null, note };
+  });
+}
+
+function readBackText(): string {
+  const usd = fx.balances.find((b) => b.currency === fx.originalTransfer.transfer_currency);
+  return `GET /api/v1/transfers/{id} reads ${fx.originalTransfer.status}. ${fx.originalTransfer.transfer_currency} pending ${fmt(usd?.pending_amount ?? 0)}, reserved ${fmt(usd?.reserved_amount ?? 0)}. The original holds no money.`;
+}
+
 function baseView(partial: Partial<DeskView> & Pick<DeskView, "phase" | "rounds" | "receipt" | "canPlan" | "canApprove" | "canReplay">): DeskView {
-  const requestId = stableRequestId(INTENT_ID, "retry_transfer", "0");
+  const requestId = canonicalRetryId(INTENT_ID, fx.originalTransfer);
   const view: DeskView = {
     transferId: fx.ORIGINAL_TRANSFER_ID,
     amount: fmt(fx.originalTransfer.transfer_amount),
@@ -137,6 +217,11 @@ function baseView(partial: Partial<DeskView> & Pick<DeskView, "phase" | "rounds"
     reference: fx.originalTransfer.reference ?? "",
     failure: failureText(),
     beneficiary: fx.SUPPLIER_BENEFICIARY_ID,
+    payeeStored: fx.supplierBeneficiary.accountName,
+    payeeConfirmed: fx.supplierCorrection.accountName,
+    payeeLast4: fx.supplierCorrection.accountLast4,
+    payeeSource: fx.supplierCorrection.source,
+    readBack: readBackText(),
     originalRequestId: fx.ORIGINAL_REQUEST_ID,
     balances: fx.balances.map((b) => ({ currency: b.currency, available: fmt(b.available_amount) })),
     reserve: fmt(fx.RESERVE_USD),
@@ -146,6 +231,11 @@ function baseView(partial: Partial<DeskView> & Pick<DeskView, "phase" | "rounds"
     requestId,
     transfersCreated: null,
     conversionsCreated: null,
+    transferCalls: partial.transferCalls ?? partial.transfersCreated ?? null,
+    transfersSettled: partial.transfersSettled ?? null,
+    conversionCalls: partial.conversionCalls ?? partial.conversionsCreated ?? null,
+    payeeUpdates: partial.payeeUpdates ?? null,
+    conversionsSettled: partial.conversionsSettled ?? null,
     ledgerLabel: ledgerLabel(ledgerBackend() === "convex" ? "convex" : "memory"),
     modelLabel: modelLabel(),
     error: store.bootError,
@@ -158,6 +248,14 @@ function baseView(partial: Partial<DeskView> & Pick<DeskView, "phase" | "rounds"
     locked: false,
     lockNote: null,
     canUnlock: false,
+    modeLabel: "MOCK FIXTURE",
+    focus: "request",
+    stations: [],
+    executions: [],
+    balancesBefore: fx.balances.map((b) => ({ currency: b.currency, available: fmt(b.available_amount) })),
+    provenance: { fixture: "northwind-inv2291", gitSha: gitSha(), runId: "desk" },
+    publicFixture: false,
+    downloadHref: null,
     ...partial,
   };
   view.blockCount = view.rounds.at(-1)?.findings.filter((f) => f.severity === "block").length ?? 0;
@@ -165,19 +263,33 @@ function baseView(partial: Partial<DeskView> & Pick<DeskView, "phase" | "rounds"
   view.wringerSeated = view.plannerSeated && view.blockCount === 0;
   view.canApprove = partial.canApprove && view.wringerSeated;
   view.keyReason = keyCopy(view.phase, view.plannerSeated, view.wringerSeated, view.blockCount, view.requestId);
+  view.stations = stationsFor(view);
+  view.focus = focusFor(view);
   return view;
 }
 
 function viewFromSession(s: Session): DeskView {
-  const rounds = roundsFromLedger(s.ledger);
+  const rounds = roundsFromLedger(s.ledger, s.awx.quotes);
   const receipt = s.ledger.receipts.filter((r) => r.intentId === INTENT_ID).at(-1)?.lines ?? null;
   return baseView({
     phase: s.phase,
     rounds,
     receipt,
-    balances: s.awx.balances.map((b) => ({ currency: b.currency, available: fmt(b.available_amount) })),
+    balances: s.awx.balances.map((b) => ({
+      currency: b.currency,
+      available: fmt(b.available_amount),
+      pending: fmt(b.pending_amount ?? 0),
+      reserved: fmt(b.reserved_amount ?? 0),
+      total: fmt(b.total_amount ?? b.available_amount),
+    })),
     transfersCreated: s.awx.calls.createTransfer,
     conversionsCreated: s.awx.calls.createConversion,
+    transferCalls: s.awx.calls.createTransfer,
+    transfersSettled: s.awx.settled.transfers,
+    conversionCalls: s.awx.calls.createConversion,
+    conversionsSettled: s.awx.settled.conversions,
+    payeeUpdates: s.awx.calls.updateBeneficiary,
+    payeeStored: s.awx.beneficiaries.get(fx.SUPPLIER_BENEFICIARY_ID)?.accountName ?? fx.supplierBeneficiary.accountName,
     ledgerLabel: ledgerLabel(s.ledgerKind),
     error: s.error ?? store.bootError,
     warning: s.warning,
@@ -185,6 +297,9 @@ function viewFromSession(s: Session): DeskView {
     canApprove: s.phase === "review" || s.phase === "failed",
     canReplay: s.phase === "paid",
     replayed: s.replayed,
+    executions: executionRows(s.ledger.executions),
+    balancesBefore: s.balancesBefore,
+    provenance: { fixture: "northwind-inv2291", gitSha: gitSha(), runId: s.replayed ? "desk-replay" : `desk-${s.phase}` },
   });
 }
 
@@ -196,11 +311,15 @@ function viewFromRemote(remote: RemoteIncident): DeskView | null {
       round: p.round,
       summary: p.summary,
       decision: decision?.status ?? "open",
-      approvedBy: decision?.humanApprovedBy,
-      actions: (p.actions as Action[]).map(actionRow),
-      findings: remote.objections
-        .filter((o) => o.proposalKey === p.key)
-        .map((o) => ({ check: o.check, severity: o.severity, detail: o.detail })),
+        approvedBy: decision?.humanApprovedBy,
+        approvedAt: clock(decision?.humanApprovedAt),
+        boundDigest: decision?.boundDigest,
+        evidenceDigest: decision?.evidenceDigest,
+        decidedAt: clock(decision?.createdAt),
+        actions: (p.actions as Action[]).map((action) => actionRow(action)),
+        findings: remote.objections
+          .filter((o) => o.proposalKey === p.key)
+          .map((o) => ({ check: o.check, severity: o.severity, detail: o.detail, at: clock(o.createdAt) })),
     };
   });
   const paid = remote.receipts.length > 0;
@@ -212,6 +331,10 @@ function viewFromRemote(remote: RemoteIncident): DeskView | null {
     receipt: remote.receipts.at(-1)?.lines ?? null,
     transfersCreated: paid ? retrySends : null,
     conversionsCreated: paid ? conversionSends : null,
+    transferCalls: null,
+    transfersSettled: paid ? retrySends : null,
+    conversionCalls: null,
+    conversionsSettled: paid ? conversionSends : null,
     ledgerLabel: "Convex",
     warning: paid
       ? "Loaded from the ledger. This process has not sent a payment."
@@ -219,6 +342,9 @@ function viewFromRemote(remote: RemoteIncident): DeskView | null {
     canPlan: !paid,
     canApprove: false,
     canReplay: false,
+    executions: executionRows(remote.executions.map((e) => ({
+      actionKind: e.actionKind, requestId: e.requestId, result: e.result, airwallexId: e.airwallexId, response: e.response ?? null,
+    }))),
   });
 }
 
@@ -233,7 +359,10 @@ function hydrate(remote: RemoteIncident): Session | null {
       ? [{ quote_id: a.quoteId, buy_currency: a.buyCurrency, sell_currency: a.sellCurrency, buy_amount: a.buyAmount, valid_to_at: a.quoteValidToAt }]
       : []);
   const warning = "Restored from the ledger after a restart. The decision is still waiting for a tap.";
-  return { awx: createMockClient({ quotes }), ledger, phase: "review", ledgerKind: "convex", warning, error: null, replayed: false, now: fx.T0 };
+  return {
+    awx: createMockClient({ quotes }), ledger, phase: "review", ledgerKind: "convex", warning, error: null, replayed: false, now: fx.T0,
+    balancesBefore: fx.balances.map((b) => ({ currency: b.currency, available: fmt(b.available_amount) })),
+  };
 }
 
 async function restoreFromLedger(): Promise<Session | null> {
@@ -258,10 +387,11 @@ export async function openPlan(access: DeskAccess = NO_ACCESS) {
   if (store.session && store.session.phase !== "failed") return;
   // A replan after a failed send keeps the same Airwallex state: whatever did move stays moved.
   const awx = store.session?.awx ?? createMockClient();
+  const balancesBefore = store.session?.balancesBefore ?? awx.balances.map((b) => ({ currency: b.currency, available: fmt(b.available_amount) }));
   const ledger = new MemoryLedger();
   const now = fx.T0;
   await runDemo(awx, { ledger, now });
-  store.session = { awx, ledger, phase: "review", ledgerKind: "memory", warning: null, error: null, replayed: false, now };
+  store.session = { awx, ledger, phase: "review", ledgerKind: "memory", warning: null, error: null, replayed: false, now, balancesBefore };
   store.bootError = null;
   await project(store.session);
 }
@@ -277,7 +407,7 @@ export async function approveSession(who: string, access: DeskAccess = NO_ACCESS
   if (!decision) throw new Error("Nothing is waiting for a tap.");
   const proposal = current.ledger.proposals.find((p) => p.id === decision.proposalId);
   if (!proposal) throw new Error("The plan for that decision is missing.");
-  if (decision.status === "awaiting_human") approve(current.ledger, decision.id, who, current.now);
+  if (decision.status === "awaiting_human") approve(current.ledger, decision.id, who, current.now, Infinity, evidenceNow(current.awx, proposal));
   const outcomes = await execute(current.ledger, current.awx, decision, proposal, current.now, new Set());
   const failed = outcomes.find((o) => o.result === "error");
   if (failed) {
@@ -294,29 +424,61 @@ export async function approveSession(who: string, access: DeskAccess = NO_ACCESS
   await project(current);
 }
 
-const ACTION_NAMES: Record<Action["kind"], string> = { retry_transfer: "The retry transfer", fx_conversion: "The FX conversion", defer_payout: "The payout deferral" };
+const ACTION_NAMES: Record<Action["kind"], string> = { correct_beneficiary: "The payee correction", retry_transfer: "The retry transfer", fx_conversion: "The FX conversion", defer_payout: "The payout deferral" };
+
+function evidenceNow(awx: { balances: { currency: string; available_amount: number }[] }, proposal: { actions: Action[] }): string {
+  const inbox = new WebhookInbox();
+  for (const event of fx.demoWebhookDeliveries) inbox.ingest(event);
+  const quote = proposal.actions.find((a) => a.kind === "fx_conversion");
+  return evidenceDigest({
+    balances: awx.balances.map((b) => ({ currency: b.currency, available: b.available_amount })),
+    webhookStatus: inbox.status(fx.ORIGINAL_TRANSFER_ID),
+    quoteId: quote?.kind === "fx_conversion" ? quote.quoteId : undefined,
+    reserve: fx.RESERVE_USD,
+    queued: [{ id: fx.queuedPayout.id, amount: fx.queuedPayout.amount }],
+  });
+}
 
 function failureCopy(kind: Action["kind"], response: unknown): string {
-  const raw = (response as { message?: unknown } | undefined)?.message;
+  const body = response as { message?: unknown; providerCall?: unknown } | undefined;
+  const raw = body?.message;
   const detail = publicError(new Error(typeof raw === "string" && raw ? raw : "no detail"));
+  if (body?.providerCall === "issued_outcome_unknown") {
+    return `${ACTION_NAMES[kind]} was not recorded here. The shared ledger kept another worker's outcome. If a provider call already left, it was not undone and its result is unknown.`;
+  }
   return `${ACTION_NAMES[kind]} failed: ${detail}. Nothing was marked paid. Retry the approved plan or replan.`;
 }
 
 export async function replaySession(who: string, access: DeskAccess = NO_ACCESS) {
   assertDeskAccess(access);
+  void who;
   const current = store.session;
   if (!current || current.phase !== "paid") throw new Error("Pay once before replaying.");
-  const ledger = new MemoryLedger();
-  await runDemo(current.awx, { approver: who, ledger, now: current.now });
-  current.ledger = ledger;
+  const decision = [...current.ledger.decisions].reverse().find((d) => d.status === "approved");
+  const proposal = current.ledger.proposals.find((p) => p.id === decision?.proposalId);
+  if (!decision || !proposal) throw new Error("No approved plan to reconcile.");
+  const calls = { ...current.awx.calls };
+  const outcomes = await reconcileSettled(current.awx, INTENT_ID, proposal.actions, current.ledger, decision.id, current.now);
+  if (current.awx.calls.createTransfer !== calls.createTransfer || current.awx.calls.createConversion !== calls.createConversion || current.awx.calls.createQuote !== calls.createQuote) {
+    throw new Error("Reconcile sent a provider call.");
+  }
+  const failed = outcomes.find((o) => o.result === "error");
+  if (failed) {
+    const body = failed.response as { message?: string } | null;
+    current.error = body?.message ?? "Reconcile failed. Nothing new was sent.";
+    current.replayed = false;
+    return;
+  }
+  buildReceipt(current.ledger, INTENT_ID, current.now);
   current.replayed = true;
+  current.balancesBefore = current.balancesBefore ?? fx.balances.map((b) => ({ currency: b.currency, available: fmt(b.available_amount) }));
   current.error = null;
   await project(current);
 }
 
 /** What a visitor without the desk key sees: the fixture incident only. No session, no Convex read. */
 function lockedView(gate: Extract<GateState, "locked" | "unconfigured">, keyMissed: boolean): DeskView {
-  return baseView({
+  const view = baseView({
     phase: "incident",
     rounds: [],
     receipt: null,
@@ -330,6 +492,41 @@ function lockedView(gate: Extract<GateState, "locked" | "unconfigured">, keyMiss
       ? "This desk is locked. Enter the desk key to open the ledger, plan, and approve."
       : "This desk has no desk key set on the server, so the shared ledger stays closed.",
   });
+  view.keyReason = gate === "locked"
+    ? "The planner and the Wringer stay closed until the desk key matches."
+    : "The planner and the Wringer stay closed. No desk key is set on the server.";
+  return view;
+}
+
+export function renderSession(s: Session): DeskView {
+  return viewFromSession(s);
+}
+
+export function presentPublic(view: DeskView, beat: string): DeskView {
+  return {
+    ...view,
+    canPlan: false,
+    canApprove: false,
+    canReplay: false,
+    locked: false,
+    canUnlock: false,
+    publicFixture: true,
+    downloadHref: "/fixture/receipt",
+    modeLabel: "MOCK FIXTURE",
+    lockNote: "Public fixture. Read only. This page does not read a private incident.",
+    provenance: { ...view.provenance, runId: `fixture-${beat}` },
+  };
+}
+
+export function publicIncident(): DeskView {
+  return presentPublic(baseView({
+    phase: "incident",
+    rounds: [],
+    receipt: null,
+    canPlan: false,
+    canApprove: false,
+    canReplay: false,
+  }), "incident");
 }
 
 export async function getDeskView(access: DeskAccess = NO_ACCESS, opts: { keyMissed?: boolean } = {}): Promise<DeskView> {

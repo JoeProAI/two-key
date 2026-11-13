@@ -5,7 +5,8 @@ import { claimDecision } from "@/lib/ledger/claim";
 import { MemoryLedger } from "@/lib/ledger/memory";
 import { toIncidentArgs } from "@/lib/ledger/payload";
 import { ledgerBackend, resetLedgerRemoteForTests, setLedgerApiForTests, setLedgerBackendForTests, syncIncident, takeRequestSlot } from "@/lib/ledger/remote";
-import { stableRequestId } from "@/lib/requestId";
+import * as fx from "@/lib/airwallex/fixtures";
+import { canonicalRetryId } from "@/lib/requestId";
 
 afterEach(() => {
   resetLedgerRemoteForTests();
@@ -30,7 +31,7 @@ describe("ledger backend", () => {
     expect(args.proposals.map((p) => p.round)).toEqual([1, 2]);
     expect(args.objections.some((o) => o.check === "double_payment" && o.severity === "block")).toBe(true);
     expect(args.receipts[0].lines.join("\n")).toMatch(/approved by joe/);
-    const retry = stableRequestId("intent_inv2291", "retry_transfer", "0");
+    const retry = canonicalRetryId("intent_inv2291", fx.originalTransfer);
     expect(args.executions.some((e) => e.requestId === retry && e.result === "ok")).toBe(true);
   });
 

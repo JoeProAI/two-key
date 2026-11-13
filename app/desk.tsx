@@ -1,228 +1,337 @@
-"use client";
-
-import { useFormStatus } from "react-dom";
+import type { ReactNode } from "react";
 import { approveDesk, planDesk, replayDesk, unlockDesk } from "./actions";
-import type { DeskView } from "@/lib/desk/types";
+import { DeskFrame } from "./ui/desk-frame";
+import { ApproverField, DeskKeyField, GuardedForm } from "./ui/guarded-form";
+import { SubmitButton } from "./ui/submit-button";
+import { CopyId } from "./ui/copy-id";
+import { HeroPlate } from "./ui/hero-plate";
+import { AirwallexCalls } from "./ui/airwallex-calls";
+import { actionName, nextCue, rail, resultWord, stateLine } from "@/lib/desk/story";
+import type { DeskAction, DeskRound, DeskView } from "@/lib/desk/types";
 
-function Submit({ idle, pending, disabled, className }: { idle: string; pending: string; disabled?: boolean; className?: string }) {
-  const status = useFormStatus();
+const UNKNOWN = "Unknown. Not on this desk.";
+
+export function Desk({ view, demo }: { view: DeskView; demo?: ReactNode }) {
+  const cue = nextCue(view);
+  const stops = rail(view);
+  const state = view.error && view.phase !== "failed"
+    ? { word: "Tap refused", tone: "fail" as const, detail: view.error }
+    : stateLine(view);
+  const latest = view.rounds.at(-1);
+  const privateDesk = !view.publicFixture;
   return (
-    <button type="submit" className={className} disabled={disabled || status.pending} aria-busy={status.pending || undefined}>
-      {status.pending ? pending : idle}
-    </button>
+    <DeskFrame>
+      <div className={demo ? "instrument has-demo" : "instrument"}>
+      <header className="mast">
+        <p className="brand">Two-Key</p>
+        <p className="mock">MOCK. No real money moves.</p>
+        <p className="mast-links">
+          {privateDesk ? <a href="/fixture">Mock fixture</a> : <a href="/">Private desk</a>}
+          {view.publicFixture ? <span>Public fixture. Read only.</span> : null}
+          <a href="#airwallex" className="awx-link">Airwallex calls</a>
+        </p>
+      </header>
+      <section className="summary" id="incident" aria-labelledby="payee">
+        <p className="eyebrow">Payee reference</p>
+        <h1 id="payee">{view.reference}</h1>
+        <div className="figure-row">
+          <p className="amount">
+            <span className="figures">{view.amount}</span>
+            <span className="unit">{view.currency}</span>
+          </p>
+          <p className="state" data-tone={state.tone}>{state.word}</p>
+        </div>
+        <p className="next" id="next-step">
+          <a href={cue.href}>{cue.text}</a>
+        </p>
+        <p className="lead">{state.detail}</p>
+        <p className="binding">
+          {latest ? `Bound to plan round ${latest.round}. Digest ${short(latest.boundDigest)}` : "No plan is filed. Nothing is bound."}
+        </p>
+      </section>
+      <HeroPlate />
+      <nav className="rail" aria-label="Bound decision">
+        {stops.map((stop) => (
+          <a key={stop.id} href={`#${stop.id}`}>
+            <span>{stop.label}</span>
+            <strong>{stop.status}</strong>
+          </a>
+        ))}
+      </nav>
+      {demo}
+      <section className="cash-field" id="cash">
+        <Incident view={view} />
+        <h2>Cash plan</h2>
+        <Cash view={view} />
+        <Plan rounds={view.rounds} />
+        {privateDesk && view.canPlan && view.phase !== "failed" ? (
+          <GuardedForm action={planDesk}>
+            <SubmitButton idle="Run the planner" pending="Filing the plan" />
+          </GuardedForm>
+        ) : null}
+      </section>
+      <section className="consent">
+        <div id="check">
+          <h2>Independent check</h2>
+          <p>Wringer is a fixture program, not a person. A clear check is not human consent.</p>
+          <Checker rounds={view.rounds} blockCount={view.blockCount} />
+        </div>
+        <div id="authorization">
+          <h2>Human authorization</h2>
+          <Terms view={view} latest={latest} />
+          {privateDesk && view.locked && view.canUnlock ? (
+            <GuardedForm action={unlockDesk}>
+              <DeskKeyField />
+              <SubmitButton idle="Unlock the desk" pending="Checking the key" />
+            </GuardedForm>
+          ) : null}
+          {privateDesk && view.canApprove && view.phase !== "failed" && !view.locked ? (
+            <GuardedForm action={approveDesk} blocked={!view.canApprove}>
+              <ApproverField blocked={!view.canApprove} />
+              <SubmitButton
+                idle="Approve this mock plan and simulate payment"
+                pending="Simulating the payment"
+                blocked={!view.canApprove}
+              />
+            </GuardedForm>
+          ) : null}
+          {view.publicFixture ? <p>This public fixture has no approval control.</p> : null}
+        </div>
+      </section>
+      <section className="proof" id="receipt" aria-labelledby="receipt-title">
+        <h2 id="receipt-title">Receipt</h2>
+        <Proof view={view} />
+        <p id="key-reason">Recorded gate line: {view.keyReason}</p>
+        {privateDesk && view.phase === "failed" && view.canApprove ? (
+          <GuardedForm action={approveDesk}>
+            <SubmitButton idle="Retry the approved plan" pending="Retrying the simulation" />
+          </GuardedForm>
+        ) : null}
+        {privateDesk && view.phase === "failed" && view.canPlan ? (
+          <GuardedForm action={planDesk}>
+            <SubmitButton idle="Replan with fresh balances" pending="Filing the plan" quiet />
+          </GuardedForm>
+        ) : null}
+        {privateDesk && view.canReplay ? (
+          <GuardedForm action={replayDesk}>
+            <SubmitButton idle="Verify recorded mock result" pending="Checking the recorded ids" />
+          </GuardedForm>
+        ) : null}
+      </section>
+      <AirwallexCalls view={view} />
+      </div>
+    </DeskFrame>
   );
 }
 
-export function Desk({ view }: { view: DeskView }) {
+function Incident({ view }: { view: DeskView }) {
   return (
-    <div className="desk-wrap">
-      <header className="mast">
-        <p className="kicker">Payment ops · Incident INV-2291</p>
-        <div className="mast-row">
-          <h1>Two-Key</h1>
-          <p className="case-no">Northwind Steel</p>
-        </div>
-        <p className="lede">A $40,000 supplier payment failed on the account name. One retry. Two keys. A receipt.</p>
-      </header>
-
-      {view.error ? <p className="banner" role="alert">{view.error}</p> : null}
-      {view.warning ? <p className="banner warning">{view.warning}</p> : null}
-
-      <div className="desk">
-        <article className="sheet">
-          <div className="amount-break">
-            <div className="figures">
-              <p className="currency">{view.currency}</p>
-              <p className="amount">{view.amount}</p>
-            </div>
-            <p className="stamp" aria-hidden="true">Cancelled</p>
-          </div>
-          <p className="failure">{view.failure}</p>
-          <dl className="meta">
-            <div>
-              <dt>Reference</dt>
-              <dd>{view.reference}</dd>
-            </div>
-            <div>
-              <dt>Transfer</dt>
-              <dd>{view.transferId}</dd>
-            </div>
-            <div>
-              <dt>Status</dt>
-              <dd>{view.status}</dd>
-            </div>
-            <div>
-              <dt>Beneficiary</dt>
-              <dd>{view.beneficiary}</dd>
-            </div>
-            <div>
-              <dt>Original request</dt>
-              <dd>{view.originalRequestId}</dd>
-            </div>
-          </dl>
-
-          <section className="tape">
-            <h2>Notices</h2>
-            {view.webhooks.length === 0 ? (
-              <p className="empty">No notices ingested for this transfer. Wait for the failure, then run the planner.</p>
-            ) : (
-              <table>
-                <caption>Arrival order. Duplicates and a late processing notice are marked.</caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Event</th>
-                    <th scope="col">Name</th>
-                    <th scope="col">Status</th>
-                    <th scope="col">Created</th>
-                    <th scope="col">Flag</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {view.webhooks.map((row, i) => (
-                    <tr key={`${row.id}-${i}`}>
-                      <td>{row.id}</td>
-                      <td>{row.name}</td>
-                      <td>{row.status}</td>
-                      <td>{row.created}</td>
-                      <td>{row.flag ? <span className="flag">{row.flag}</span> : ""}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-            <p className="note">Arrival order ends on PROCESSING. Created-at order ends on CANCELLED. The desk follows created-at, then a fresh read of the transfer.</p>
-          </section>
-
-          <section className="balances">
-            <h2>Balances now</h2>
-            <table>
-              <caption>Available balances, the USD floor, and the queued retainer.</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Currency</th>
-                  <th scope="col">Available</th>
-                </tr>
-              </thead>
-              <tbody>
-                {view.balances.map((row) => (
-                  <tr key={row.currency}>
-                    <td>{row.currency}</td>
-                    <td>{row.available}</td>
-                  </tr>
-                ))}
-                <tr>
-                  <td>USD floor</td>
-                  <td>{view.reserve}</td>
-                </tr>
-                <tr>
-                  <td>{view.queuedLabel}</td>
-                  <td>{view.queuedAmount}</td>
-                </tr>
-              </tbody>
-            </table>
-          </section>
-
-          <section className="rounds">
-            <h2>Rounds</h2>
-            {view.rounds.length === 0 ? (
-              <p className="empty">No plan filed. The failed transfer is the only thing on the sheet.</p>
-            ) : view.rounds.map((round) => (
-              <article className="round" key={round.round}>
-                <p className="round-no">Round {round.round}</p>
-                <p className="summary">{round.summary}</p>
-                <ul>
-                  {round.actions.map((action) => (
-                    <li key={`${round.round}-${action.kind}-${action.requestId ?? action.detail}`}>
-                      <strong>{action.kind}.</strong> {action.detail}
-                      {action.requestId ? <div className="request">{action.requestId}</div> : null}
-                    </li>
-                  ))}
-                </ul>
-                {round.findings.map((finding) => (
-                  <p className={finding.severity === "block" ? "finding block" : "finding"} key={`${round.round}-${finding.check}`}>
-                    <span className="check">{finding.severity === "block" ? "Block" : "Note"} · {finding.check}</span>
-                    <br />
-                    {finding.detail}
-                  </p>
-                ))}
-                <p className="decision">
-                  Decision: {round.decision}
-                  {round.approvedBy ? `, approved by ${round.approvedBy}` : ""}
-                </p>
-              </article>
-            ))}
-            {view.canPlan ? (
-              <form action={planDesk}>
-                <Submit className="ghost" idle={view.phase === "failed" ? "Replan with fresh balances" : "Run the planner"} pending="Filing the plan" />
-              </form>
-            ) : null}
-          </section>
-
-          <section className="receipt-slip" aria-live="polite">
-            <h2>Receipt</h2>
-            {view.receipt && view.receipt.length > 0 ? (
-              <pre>{view.receipt.join("\n")}</pre>
-            ) : (
-              <p className="empty">No receipt yet. A seated pair of keys and one tap write it.</p>
-            )}
-            {view.transfersCreated !== null ? (
-              <p className="counts">
-                <span>Transfers created: {view.transfersCreated}</span>
-                <span>Conversions created: {view.conversionsCreated}</span>
-                {view.replayed ? <span>Replay on an empty ledger</span> : null}
-              </p>
-            ) : null}
-          </section>
-        </article>
-
-        <aside className="rail">
-          <h2>Keys</h2>
-          <div className="keys" role="group" aria-label="Two keys">
-            <div className="tumbler" data-state={view.plannerSeated ? "seated" : "open"}>
-              <span className="slot" aria-hidden="true" />
-              <span className="key-name">Planner</span>
-              <span className="key-state">{view.plannerSeated ? "Seated" : "Open"}</span>
-            </div>
-            <div className="tumbler" data-state={view.wringerSeated ? "seated" : "open"}>
-              <span className="slot" aria-hidden="true" />
-              <span className="key-name">Wringer</span>
-              <span className="key-state">
-                {view.wringerSeated ? "Seated" : view.plannerSeated ? `Open. ${view.blockCount} blocks.` : "Open"}
-              </span>
-            </div>
-          </div>
-          <p className="request" id="key-reason">{view.keyReason}</p>
-          <p className="request">Stable request id {view.requestId}</p>
-          {view.locked ? (
-            <div className="lock">
-              <p className="request">{view.lockNote}</p>
-              {view.canUnlock ? (
-                <form className="tap" action={unlockDesk}>
-                  <label htmlFor="desk-key">Desk key</label>
-                  <input id="desk-key" name="deskKey" type="password" autoComplete="current-password" maxLength={200} required />
-                  <Submit idle="Unlock the desk" pending="Checking the key" />
-                </form>
-              ) : null}
-            </div>
-          ) : view.phase === "incident" ? null : view.canReplay ? (
-            <form className="replay" action={replayDesk}>
-              <input type="hidden" name="approver" value="joe" />
-              <Submit idle="Replay on an empty ledger" pending="Replaying" />
-            </form>
-          ) : (
-            <form className="tap" action={approveDesk}>
-              <label htmlFor="approver">Approver</label>
-              <input id="approver" name="approver" type="text" defaultValue="joe" maxLength={40} autoComplete="name" required disabled={!view.canApprove} />
-              <Submit idle={view.phase === "failed" ? "Retry the approved plan" : "Approve and pay once"} pending="Paying once" disabled={!view.canApprove} />
-            </form>
-          )}
-        </aside>
+    <div className="history">
+      <h2>Incident history</h2>
+      <dl className="terms">
+        <Term label="Original transfer" value={view.transferId} copy />
+        <Term label="Original status" value={view.status} />
+        <Term label="Failure" value={view.failure || UNKNOWN} unknown={!view.failure} />
+        <Term label="Original request id" value={view.originalRequestId} copy />
+        <Term label="Beneficiary id" value={view.beneficiary || UNKNOWN} unknown={!view.beneficiary} copy={Boolean(view.beneficiary)} />
+        <Term label="Stored account name" value={view.payeeStored} />
+      </dl>
+      <div className="newinfo" aria-labelledby="newinfo-title">
+        <h3 id="newinfo-title">New information</h3>
+        <dl className="terms">
+          <Term label="Read-back" value={view.readBack} />
+          <Term label="Supplier confirmed name" value={view.payeeConfirmed} />
+          <Term label="Account" value={`Same account, ending ${view.payeeLast4}`} />
+          <Term label="Source" value={view.payeeSource} />
+        </dl>
+        <p className="fine">Fictional supplier. The plan updates the payee before any retry. Code blocks a retry to an unchanged payee.</p>
       </div>
-
-      <footer className="foot">
-        <span>{view.modelLabel}</span>
-        <span>Ledger: {view.ledgerLabel}</span>
-      </footer>
+      {view.webhooks.length ? (
+        <ul className="hooks">
+          {view.webhooks.map((hook, index) => (
+            <li key={`${hook.id}-${hook.created}-${index}`}>{hook.name}. {hook.status}. {hook.flag}. Created {hook.created}.</li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
+}
+
+function Cash({ view }: { view: DeskView }) {
+  return (
+    <>
+      <div className="cash">
+        {view.balances.map((row) => {
+          const before = view.balancesBefore.find((item) => item.currency === row.currency);
+          return (
+            <div key={row.currency} className="purse">
+              <h3>{row.currency}</h3>
+              <p><span>Before</span> <strong>{before?.available ?? UNKNOWN}</strong></p>
+              <p><span>Available now</span> <strong>{row.available}</strong></p>
+              <p><span>Pending</span> <strong>{row.pending ?? "0.00"}</strong></p>
+              <p><span>Reserved</span> <strong>{row.reserved ?? "0.00"}</strong></p>
+              <p><span>Total</span> <strong>{row.total ?? row.available}</strong></p>
+            </div>
+          );
+        })}
+      </div>
+      <p>Before is the opening available balance. Now is available after this beat. Total is available plus pending plus reserved.</p>
+      <p>The {view.reserve} {view.balances[0]?.currency ?? "USD"} floor is a policy rule. It is not reserved.</p>
+      <p>{view.queuedLabel}: {view.queuedAmount}. The retainer is not reserved.</p>
+      <p>Mock ledger, not a live balance.</p>
+    </>
+  );
+}
+
+function Plan({ rounds }: { rounds: DeskRound[] }) {
+  if (!rounds.length) return <p>No plan is filed.</p>;
+  return (
+    <ol className="rounds">
+      {rounds.map((round) => (
+        <li key={round.round}>
+          <h3>Round {round.round}. {round.decision}</h3>
+          <p>{round.summary}</p>
+          {round.actions.map((action) => (
+            <ActionFacts key={`${round.round}-${action.requestId ?? action.kind}`} action={action} />
+          ))}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function ActionFacts({ action }: { action: DeskAction }) {
+  return (
+    <div className="action">
+      <h4>{action.kind}</h4>
+      <p>{action.detail}</p>
+      <dl className="terms">
+        <Term label="Request id" value={action.requestId ?? UNKNOWN} unknown={!action.requestId} copy={Boolean(action.requestId)} />
+        {action.kind === "FX conversion" ? (
+          <>
+            <Term label="Quote id" value={action.quoteId ?? UNKNOWN} unknown={!action.quoteId} copy={Boolean(action.quoteId)} />
+            <Term label="Quote valid from" value={action.quoteValidFrom ?? UNKNOWN} unknown={!action.quoteValidFrom} />
+            <Term label="Quote valid to" value={action.quoteValidTo ?? UNKNOWN} unknown={!action.quoteValidTo} />
+            <Term label="Quoted client rate" value={action.clientRate ?? "Quoted rate unknown"} unknown={!action.clientRate} />
+            <Term label="Quoted sell amount" value={action.sellAmount ? `${action.sellAmount} ${action.sellCurrency ?? ""}`.trim() : UNKNOWN} unknown={!action.sellAmount} />
+          </>
+        ) : null}
+        {action.beneficiaryId ? <Term label="Beneficiary id" value={action.beneficiaryId} copy /> : null}
+      </dl>
+    </div>
+  );
+}
+
+function Checker({ rounds, blockCount }: { rounds: DeskRound[]; blockCount: number }) {
+  if (!rounds.length) return <p>The checker has not run.</p>;
+  return (
+    <>
+      <p>{blockCount ? `${blockCount} blocking findings on the latest round.` : "No blocking finding on the latest round. That is not consent."}</p>
+      <ol className="rounds">
+        {rounds.map((round) => (
+          <li key={round.round}>
+            <h3>Round {round.round}</h3>
+            {round.findings.length ? (
+              <ul>
+                {round.findings.map((finding) => (
+                  <li key={`${round.round}-${finding.check}`}>
+                    <strong>{finding.severity === "block" ? "Blocking" : "Note"}. {finding.check}.</strong> {finding.detail}
+                    {finding.at ? ` Recorded at ${finding.at} on the demo clock.` : " Recorded time unknown."}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No objection on this round.</p>
+            )}
+          </li>
+        ))}
+      </ol>
+    </>
+  );
+}
+
+function Terms({ view, latest }: { view: DeskView; latest: DeskRound | undefined }) {
+  const fx = latest?.actions.find((action) => action.kind === "FX conversion");
+  const retry = latest?.actions.find((action) => action.kind === "Retry transfer");
+  return (
+    <>
+      <p>These are the terms a mock tap would bind. Missing fields stay unknown. This page does not add a new block when a field is unknown.</p>
+      {!latest ? <p>No plan is filed, so there is no bound digest.</p> : null}
+      <dl className="terms">
+        <Term label="Payee reference" value={view.reference} />
+        <Term label="Amount and currency" value={`${view.amount} ${view.currency}`} />
+        <Term label="Retry request id" value={retry?.requestId ?? (view.requestId ? `${view.requestId}. Not filed on a plan yet.` : UNKNOWN)} unknown={!retry?.requestId} copy={Boolean(retry?.requestId)} />
+        <Term label="FX request id" value={fx?.requestId ?? UNKNOWN} unknown={!fx?.requestId} copy={Boolean(fx?.requestId)} />
+        <Term label="Beneficiary id" value={retry?.beneficiaryId ?? view.beneficiary ?? UNKNOWN} unknown={!(retry?.beneficiaryId ?? view.beneficiary)} copy />
+        <Term label="Destination account name" value={UNKNOWN} unknown />
+        <Term label="Fees" value={UNKNOWN} unknown />
+        <Term label="Slippage" value={UNKNOWN} unknown />
+        <Term label="Quote id" value={fx?.quoteId ?? UNKNOWN} unknown={!fx?.quoteId} copy={Boolean(fx?.quoteId)} />
+        <Term label="Quoted client rate" value={fx?.clientRate ?? "Quoted rate unknown"} unknown={!fx?.clientRate} />
+        <Term label="Quoted sell amount" value={fx?.sellAmount ? `${fx.sellAmount} ${fx.sellCurrency ?? ""}`.trim() : UNKNOWN} unknown={!fx?.sellAmount} />
+        <Term label="Quote valid to" value={fx?.quoteValidTo ?? UNKNOWN} unknown={!fx?.quoteValidTo} />
+        <Term label="Bound digest" value={latest?.boundDigest ?? UNKNOWN} unknown={!latest?.boundDigest} copy={Boolean(latest?.boundDigest)} />
+        <Term label="Evidence digest" value={latest?.evidenceDigest ?? UNKNOWN} unknown={!latest?.evidenceDigest} copy={Boolean(latest?.evidenceDigest)} />
+        <Term label="Plan filed" value={latest?.decidedAt ? `${latest.decidedAt} on the demo clock` : UNKNOWN} unknown={!latest?.decidedAt} />
+        <Term label="Cash snapshot time" value={UNKNOWN} unknown />
+        <Term label="Demo approver label" value={latest?.approvedBy ? `${latest.approvedBy}. This is not authentication.` : "None recorded. A typed name is a demo label, not authentication."} />
+        <Term label="Label recorded at" value={latest?.approvedAt ?? "None recorded."} unknown={!latest?.approvedAt} />
+        <Term label="Authenticated identity" value={UNKNOWN} unknown />
+      </dl>
+      {view.phase === "failed" ? <p>The simulation did not finish. The retry control is in the receipt, after the failure.</p> : null}
+    </>
+  );
+}
+
+function Proof({ view }: { view: DeskView }) {
+  return (
+    <>
+      {view.replayed ? <p>Verify recorded mock result. This check creates no new payment.</p> : null}
+      {view.phase === "paid" && !view.replayed ? <p>Simulated payment recorded. This is not a live provider payment.</p> : null}
+      {view.phase === "failed" ? <p>Nothing is marked paid. {view.error}</p> : null}
+      <dl className="terms">
+        <Term label="Transfer calls" value={count(view.transferCalls)} />
+        <Term label="Transfers settled" value={count(view.transfersSettled)} />
+        <Term label="Conversion calls" value={count(view.conversionCalls)} />
+        <Term label="Conversions settled" value={count(view.conversionsSettled)} />
+      </dl>
+      {view.executions.length ? (
+        <ul className="executions">
+          {view.executions.map((row, index) => (
+            <li key={`${index}-${row.result}-${row.action}-${row.requestId}`}>
+              <strong>{resultWord(row.result)}. {actionName(row.action)}.</strong>
+              <span>Request id {row.requestId}</span>
+              <span>{row.providerId ? `Provider id ${row.providerId}` : "No provider id on this row."}</span>
+              {row.note ? <span>{row.note}</span> : null}
+            </li>
+          ))}
+        </ul>
+      ) : <p>No simulated execution on this beat.</p>}
+      {view.receipt?.length ? (
+        <ol className="receipt-lines">
+          {view.receipt.map((line, index) => <li key={`${index}-${line}`}>{line}</li>)}
+        </ol>
+      ) : null}
+      <p>{view.provenance.fixture}. Run {view.provenance.runId}. Git {view.provenance.gitSha}.</p>
+      {view.downloadHref ? <p><a href={view.downloadHref}>Receipt JSON</a></p> : null}
+    </>
+  );
+}
+
+function Term({ label, value, unknown, copy }: { label: string; value: string; unknown?: boolean; copy?: boolean }) {
+  return (
+    <div className={unknown ? "term unknown" : "term"}>
+      <dt>{label}</dt>
+      <dd>{copy ? <CopyId id={value} /> : value}</dd>
+    </div>
+  );
+}
+
+function short(digest: string | null | undefined): string {
+  if (!digest) return "unknown";
+  return digest.length > 12 ? `${digest.slice(0, 12)}…` : digest;
+}
+
+function count(value: number | null): string {
+  return value === null ? UNKNOWN : String(value);
 }

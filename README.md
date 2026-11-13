@@ -2,23 +2,73 @@
 
 A payment ops agent for the Airwallex Agentic Banking Hackathon. It fixes failed supplier payments without paying twice. Tracks: 03 Payment Ops Incident Commander (primary) and 01 Adaptive Treasury Controller.
 
-Each money move needs two keys. The **planner** drafts the fix: retry the transfer, convert funds with an FX quote, or defer a low-priority payout. The **Wringer** tries to break the plan. It looks for duplicate or out-of-order webhooks, CANCELLED vs FAILED, stale FX quotes, and reserve breaches. The **executor** runs a plan only when both agree, uses one stable `request_id` per intent and action, and waits for a human tap at or above `APPROVAL_THRESHOLD_USD`. Every step lands in the ledger and comes out as a receipt.
+Each money move needs two keys. The **planner** drafts the fix: retry the transfer, convert funds with an FX quote, or defer a low-priority payout. The **Wringer** tries to break the plan. It looks for duplicate or out-of-order webhooks, CANCELLED vs FAILED, stale FX quotes, and reserve breaches. After the bank rejects the payee name, it blocks any retry to the unchanged payee (`beneficiary_unchanged_after_mismatch`); the planner first updates the payee to the name the (fictional) supplier confirmed, with `POST /api/v1/beneficiaries/{id}/update`. The **executor** runs a plan only when both agree, uses one stable `request_id` per intent and action, and waits for a human tap at or above `APPROVAL_THRESHOLD_USD`. Every step lands in the ledger and comes out as a receipt.
 
-Status: mock $40k desk runs with no model key and no Convex deployment. Live sandbox smoke has been run (see `docs/ops-note.md`). The repo stays private.
+Status: the $40k Northwind incident runs end to end in **MOCK** mode with no model key, no Convex deployment and no Airwallex keys. The desk opens on an image-led spread: the live amount, payee, state and next step beside an illustrative photo, then the bound rail (Incident, Cash plan, Independent check, Human authorization, Receipt). A **SANDBOX** smoke against `api.sandbox.airwallex.com` was run on 2026-10-27 (see `docs/ops-note.md`); `npm run proof` reruns it only when sandbox keys are present. Licensed MIT, see [LICENSE](LICENSE).
+
+| Label | Means |
+|---|---|
+| MOCK | Hand-written fixtures in `lib/airwallex/mock.ts`. No network. No real money moves. The public desk and every `npm run demo` line are MOCK. |
+| SANDBOX | Airwallex sandbox host only, real sandbox ids, still not real money. Only `npm run live-smoke` and the optional step in `npm run proof` call it. |
+| Live money | Not built. The live client refuses any host other than `api.sandbox.airwallex.com`. |
+
+## Recorded live model run
+
+Recorded live model run, mock provider: [`docs/agent-runs/2026-11-13-live-ernie-free-model-moves-converged.json`](docs/agent-runs/2026-11-13-live-ernie-free-model-moves-converged.json), Fri Nov 13 2026 02:53 UTC, head `59b2335`, planner and Wringer `baidu/ernie-5.5-flash-preview:free` on OpenRouter. The model proposed the moves itself. Round 1: the model Wringer blocked on the reserve floor. Round 2: the model dropped the deferral and the **code** check blocked it (`reserve_breach`). Round 3: the model put the deferral back, approved, one mock transfer. The companion run that stayed blocked all 3 rounds (0 transfers) and the earlier runs are in [`docs/agent-runs/`](docs/agent-runs/README.md).
+
+## Airwallex sandbox evidence
+
+Recorded sandbox run, 2026-10-27. The public desk runs the same corridor against a mock provider.
+
+| Endpoint | Recorded result |
+|---|---|
+| `POST /api/v1/authentication/login` | 201 |
+| `GET /api/v1/balances/current` | 200 |
+| `POST /api/v1/fx/quotes/create` | quote `878e1b2c-070a-3b39-9b69-0a60291f9ec6` |
+| `GET /api/v1/fx/conversions?request_id=` + `POST /api/v1/fx/conversions/create` | conversion `32a3bfa6-0c1e-408b-986e-84a45f472449` SETTLED |
+| `GET /api/v1/transfers?request_id=` + `POST /api/v1/transfers/create` | transfer `4e1dab1a-c59b-413b-92d5-813f6caafd59` |
+| `POST /api/v1/simulation/transfers/{id}/transition` | SENT, FAILED (`BENEFICIARY_NAME_MISMATCH`), read back CANCELLED |
+| Rerun 2026-10-28 | `already_done` for both, no second create |
+
+Those ids came from `scripts/live-smoke.ts`, not from this desk build. Details in `docs/ops-note.md`, the endpoint to code to test map in `docs/AIRWALLEX-MAP.md`. Rerun with your own sandbox keys: `AIRWALLEX_CLIENT_ID=... AIRWALLEX_API_KEY=... npm run proof`.
+
+Skeptical? `docs/RED-TEAM.md` answers 20+ attacks with the test that proves each, and `docs/CLAIMS.md` maps every claim here to a command.
+
+## Judges in 90 seconds
+
+No keys. No site login. Node 20.9 or newer (tested on Node 22).
+
+```bash
+npm ci
+npm run proof        # install check, npm run check, demo, demo -- rerun, matrix, optional SANDBOX corridor
+npm run dev          # then open http://localhost:3000/fixture
+```
+
+`npm run proof` writes `artifacts/proof/summary.md` plus one log per step. It fails if the Northwind demo does not pay once, if the rerun is not `already_done` with zero new calls, or if any matrix row fails. Without `AIRWALLEX_CLIENT_ID` and `AIRWALLEX_API_KEY` the sandbox step prints `SANDBOX skipped` and names the missing variables. It never invents a sandbox id.
+
+`/fixture` is the public judge page: MOCK, read only. The opening shows `INV-2291 Northwind Steel`, `40,000.00 USD`, the current state and the next step. The photo beside it is an illustrative scene, not transaction evidence. Open **Demo controls** to step through `incident`, `blocked`, `planned`, `refused`, `failed`, `paid` and `replay`. `docs/JUDGE.md` has the measured counts and `docs/shots/` has desktop and phone captures.
+
+`npm run evidence` prints the failure matrix, then three separate scenarios: `main`, `replay`, and `deposit`. Provider ids change every process. Request ids stay, and they include the amount.
 
 ## Run it
 
 ```bash
 npm install
 cp .env.example .env.local     # AIRWALLEX_MODE=mock. Agents stay on fixtures until the OpenRouter key and both model names are set.
-npm run demo                   # scripted $40k scenario, prints the receipt
-npm run demo -- rerun          # same, run twice; second run has an empty ledger and sends nothing new
+npm run demo                   # scripted $40k scenario, prints the receipt and writes the pack
+npm run demo -- replay         # pay once, then a fresh process reconciles the same actions and the same provider ids
+npm run demo -- rerun          # same as replay: the second run comes back already_done, no second send
+npm run demo -- deposit       # a USD 18000 deposit after the block shrinks the FX buy from 28000 to 10000
 npm run demo -- stale-quote    # 1-minute quote goes stale, Wringer blocks, planner re-quotes
 npm run demo -- approval       # $25k payout waits 90 min for the tap, then pays once
 npm run demo -- approval-timeout  # same payout, no tap within 4 hours: expires, nothing moves
+npm run demo:agents            # planner + Wringer through OpenRouter (needs OPENROUTER_API_KEY and both model names, else exits 2). Transcript in artifacts/agent-runs/
+npm run matrix                 # deterministic failure matrix, exits 1 on any fail
 npm run check                  # lint + typecheck + tests + build-and-scan for leaked keys
-AIRWALLEX_MODE=live npm run live-smoke   # sandbox host only: login, balances, FX quote, conversion, and a transfer that ends CANCELLED. Refuses any other AIRWALLEX_BASE_URL. Not part of check. See docs/ops-note.md.
-npm run dev                    # desk UI for the $40k incident. Open the printed localhost URL.
+npm run proof                  # one-command proof pack, writes artifacts/proof/ (add -- --skip-check for a quick pass)
+npm run pack:source            # clean source zip from HEAD in dist/, prints the path, tree sha and sha256
+AIRWALLEX_MODE=live npm run live-smoke   # SANDBOX host only. Not part of check. See docs/ops-note.md.
+npm run dev                    # desk. /fixture is the public mock. The ops desk stays locked when DESK_APPROVE_SECRET is set.
 ```
 
 ## Env vars
@@ -51,14 +101,15 @@ Never give a secret a `NEXT_PUBLIC_` prefix. `tests/key-leak.test.ts` and `scrip
 - `docs/demo-script.md`: beat sheet for the video
 - `convex/schema.ts`: tables for intents, proposals, objections, decisions, executions, webhookEvents and receipts. App ids are strings (`key`, `intentKey`). `convex/ledger.ts` holds webhook ingest, incident upsert, execution claim, and the incident read. All public functions check `TWO_KEY_INGEST_SECRET`.
 - `app/api/webhooks/airwallex/route.ts`: the webhook receiver. Writes through `WebhookStore`; returns 503 if the store is down so Airwallex retries
-- `app/page.tsx`: the desk. Failed transfer, planner rounds, Wringer objections, one approve, receipt. Mock Airwallex only. The pay button stays disabled until the latest round has no blocking objection.
-- `docs/frontend-design-SKILL.md`: Joe's Frontend Design skill, copied byte for byte
+- `app/page.tsx` and `app/desk.tsx`: the desk. Failed transfer, planner rounds, Wringer objections, one approve, receipt. Mock Airwallex only. The pay button stays disabled until the latest round has no blocking objection.
+- `app/ui/hero-plate.tsx` and `public/hero/`: the one illustrative photo, as AVIF and WebP with a JPEG fallback. Desktop uses the full frame; phones use a panoramic crop of the same master. `alt=""` because it carries no information the page needs.
+- `scripts/proof.mjs`: `npm run proof`. `scripts/make-source-zip.sh`: `npm run pack:source`.
 
 ## Safety rules in code
 
-- A `request_id` is `sha256(intent, action)`, so it never depends on the attempt, a webhook or the clock. Airwallex rejects a `request_id` reused within 7 days. Before creating a transfer, the executor also looks it up with `GET /api/v1/transfers?request_id=`. Before creating a conversion, it looks it up with `GET /api/v1/fx/conversions?request_id=` ([list conversions](https://www.airwallex.com/docs/api/transactional_fx/conversion/list.md)). If a match exists the action is `already_done`; if the match is CANCELLED the run stops for a human. The live client also does this lookup when a create call errors.
+- A `request_id` is `sha256` of the intent, the action, and the money fields (for FX: buy amount and both currencies; for a retry: slot, original transfer, amount, currency, and beneficiary). It does not depend on the attempt, a webhook, the quote id, or the clock. A different buy amount is a different id. The same id with a different payload is an error and does not send. Airwallex rejects a `request_id` reused within 7 days. Before creating a transfer, the executor looks it up with `GET /api/v1/transfers?request_id=`. Before creating a conversion, it looks it up with `GET /api/v1/fx/conversions?request_id=` ([list conversions](https://www.airwallex.com/docs/api/transactional_fx/conversion/list.md)). If the match is the same payload and is not CANCELLED, the action is `already_done`. If the match is CANCELLED the run stops for a human. A finished intent is reconciled from the saved actions. It is not replanned from the new balance. The live client also does this lookup when a create call errors.
 - The executor re-reads the original transfer right before paying. It refuses to pay if the transfer isn't CANCELLED or FAILED.
-- The LLM can add objections but can't remove the deterministic Wringer checks. A model objection whose `check` matches a hard check is dropped. A failed model call leaves the hard checks in place. The filed moves, amounts, and `request_id`s always come from code, including when the live path runs. Round 1 stays the fixture plan so the double-pay block still shows.
+- The LLM can add objections but can't remove the deterministic Wringer checks. A model objection whose `check` matches a hard check is dropped. A failed model call leaves the hard checks in place. In live mode the planner model proposes the moves from a closed set (`correct_beneficiary`, `fx_conversion`, `retry_transfer`, `defer_payout`) and revises them from the findings, up to 3 rounds. Code validates the shape, recomputes every `request_id`, quote id and payout amount, and runs the hard checks on the model's moves; a transfer, payee or conversion that differs from the evidence is blocked. A reply that breaks the schema falls back to the fixture moves for that round. In stub mode (demo, proof, matrix) code files every move and round 1 stays the double-pay block.
 - Funding runs before paying (defer, then FX, then transfer). The run stops at the first error.
 - A Convex execution row is finished only by the owner currently named on it. `ok` and `already_done` stay put, including the provider id. A replay adds a count. Lease expiry lets a second worker claim the row; the first worker's later `ok` or `error` does not replace it. The provider can still be in flight when a lease expires. Airwallex `request_id` lookup is the backstop, and this repo has not proved that window against a live host.
 - Every public function in `convex/ledger.ts` checks `TWO_KEY_INGEST_SECRET` before it reads or writes. That includes `timeline`. The mock desk with no Convex deployment does not use those functions.
@@ -66,9 +117,17 @@ Never give a secret a `NEXT_PUBLIC_` prefix. `tests/key-leak.test.ts` and `scrip
 
 ## Desk
 
-`npm run dev` serves the mock incident. Run the planner, read the Wringer blocks, approve once, then replay on an empty ledger. The receipt text matches `npm run demo`. The desk does not call the live Airwallex host. The pay control is disabled while the Wringer key is open.
+`npm run dev` serves the mock incident. `/fixture` is the public judge page: MOCK, read only, no desk key, no Convex read. Beats are `incident`, `blocked`, `planned`, `refused`, `failed`, `paid`, and `replay`. `blocked` stops on the round 1 objections and does not send. `refused` changes the cash snapshot and shows the existing evidence-digest refusal. It does not execute. `GET /fixture/receipt` returns the redacted JSON pack. `GET /fixture/receipt?format=csv` returns the execution rows.
 
-The UI follows `docs/frontend-design-SKILL.md`. The two-key rail is the control: the planner key seats when a plan is filed, the Wringer key seats only when the latest round has no block, and the tap stays disabled until both are seated.
+The ops desk at `/` is the same story with the tap. When `DESK_APPROVE_SECRET` is unset and Convex is unset, anyone can run the local mock. When the key is set, plan, approve, replay, and the Convex incident need the cookie. A wrong key or a missing cookie stays on the fixture incident. The pay control stays off while the Wringer key is open.
+
+The desk opens on one spread. On a desktop the photo sits left and the live summary right: payee reference, exact amount, state, the next step, and the plan round and digest the tap is bound to. On a phone the summary comes first, with the amount near the top of the screen, and a short panoramic crop of the same photo follows it. The photo is illustrative and is the same in every state. Its caption says it is not transaction evidence. Below it the rail reads Incident, Cash plan, Independent check, Human authorization, Receipt, then each section in that order. Demo controls stay collapsed. The MOCK label does not collapse.
+
+The checker is a fixture program. A clear check is not consent. Every bound term the ledger actually stores is on the page before the mock approval button, and missing destination, fees, slippage, quote time, and authenticated identity stay marked unknown. Typing a name stores a demo label. It does not authenticate. The paid beat says a simulated payment was recorded. Replay checks the recorded ids and does not create a payment. The policy floor and the retainer are not reserved: USD 22,000 + 28,000 − 40,000 = 10,000, which is the floor. A failed simulation does not get a paid receipt. A tap is refused if the cash evidence changed after the plan was filed. If the shared ledger keeps another worker's row, this desk does not claim that provider call was undone.
+
+The desk does not call the live Airwallex host. The live client refuses any host other than `api.sandbox.airwallex.com`. `lib/airwallex/corridor.ts` describes the sandbox steps and does not send. Missing credential names come back from that status check. No id is invented.
+
+The planner is filed before a tap exists. Wringer blocks the tap while the latest round has an objection. Selecting a step does not call a provider. The public fixture is read only. The private desk is the page with the tap.
 
 ## What is still unset for a live demo
 
@@ -76,7 +135,7 @@ Checked as names only. Do not paste values into the repo, the desk, or chat.
 
 | Name | Needed for | If unset |
 |---|---|---|
-| `OPENROUTER_API_KEY` | Live planner comment and extra Wringer objections | Fixture responses. No model request. |
+| `OPENROUTER_API_KEY` | Live planner moves (closed set, checked by code) and extra Wringer objections | Fixture responses. No model request. |
 | `OPENROUTER_MODEL_PLANNER`, `OPENROUTER_MODEL_WRINGER` | Same live path. Set both. | Fixture responses, even if the key is set. |
 | `AGENT_MODE=stub` | Forces fixtures | Leave unset if you want the live path once the three values above exist. |
 | `AIRWALLEX_WEBHOOK_SECRET` | `POST /api/webhooks/airwallex` signature check | The route returns 500. The mock desk does not need it. |
@@ -84,22 +143,19 @@ Checked as names only. Do not paste values into the repo, the desk, or chat.
 | `TWO_KEY_INGEST_SECRET` | Same Convex path. Set the same value in the Convex deployment env and the Next server env. | In-memory store, even if a Convex URL is set. |
 | `DESK_APPROVE_SECRET` | Who may plan, approve, replay, and read the Convex incident on the desk | Public fixture desk. With Convex configured, the desk stays closed. |
 
-`npx convex dev` has not been run from this slice. After it is, point the server at that deployment. The schema in `convex/schema.ts` is the one to push. `npm run check` and `npm run demo` stay green with all of the above unset.
+Convex is optional and is not configured for this build. No Convex deployment, `CONVEX_URL`, `TWO_KEY_INGEST_SECRET` or `DESK_APPROVE_SECRET` is set on the hosted demo. `npx convex dev` has not been run from this branch. After it is, point the server at that deployment. The schema in `convex/schema.ts` is the one to push. `npm run check` and `npm run demo` stay green with all of the above unset.
 
 The desk's no-double-pay guarantee across a process restart needs the Convex claim. Inside one `npm run dev` process, the mock client and `MemoryLedger` already refuse a second send, and Replay shows `already_done`.
 
-## TODO after acceptance (around Oct 25)
+## Before submission (Joe)
 
-1. **Joe:** sign up for the Airwallex sandbox at sandbox.airwallex.com with a work email. Create a scoped API key.
-2. **Joe:** add `AIRWALLEX_CLIENT_ID`, `AIRWALLEX_API_KEY`, `AIRWALLEX_WEBHOOK_SECRET` and `OPENROUTER_API_KEY` as Runtime Secrets in the Cursor Cloud Agents environment for this repo. Never paste them in chat.
-3. Run `npx convex dev` so the deployment matches `convex/schema.ts`, switch `convex/ledger.ts` to `./_generated/server` if you want generated types, set `TWO_KEY_INGEST_SECRET` in both the Convex env and the Next server env, and set `CONVEX_URL`. Webhooks, incident upsert, and the execution claim already use that pair. `MemoryLedger` remains the local path when either value is missing.
-4. Run a live sandbox smoke test: login, balances, quote, and conversion. Then create a transfer and drive it with `POST /api/v1/simulation/transfers/{id}/transition` (`FAILED` with `failure_type`, then `CANCELLED`).
-5. Fund the sandbox with the deposit simulation (check the exact endpoint under Simulation > Deposits). Create the supplier beneficiary.
-6. Subscribe to the webhook with `POST /api/v1/webhooks/create` for `payout.transfer.*` events. Point it at a public URL.
-7. Check the open questions below against the live sandbox.
-8. Done Oct 13: FX conversion lookup by `request_id` before re-sending. Check it against the sandbox in step 4.
-9. The mock desk is in. Still open: a demo video under 5 minutes, making the repo public when Joe says so (it stays private until then), and the tar or zip.
-10. **Joe:** review by Nov 11 and submit before Fri Nov 13, 1:29 PM ET.
+1. Review and merge the submit PR. Optionally promote a production deploy. The hosted desk stays `AIRWALLEX_MODE=mock`.
+2. Make the repo public when ready. It stays private until then.
+3. Optional SANDBOX rerun: put `AIRWALLEX_CLIENT_ID` and `AIRWALLEX_API_KEY` in `.env.local` or the shell, then `npm run proof`. Never paste them in chat or commit them.
+4. Optional durable ledger: run `npx convex dev`, set `CONVEX_URL` and `TWO_KEY_INGEST_SECRET` (same value in the Convex env), and set `DESK_APPROVE_SECRET`. `MemoryLedger` stays the path when either Convex value is missing.
+5. Record the video from `docs/demo-script.md`, run `npm run pack:source` for the upload archive, and submit before Fri Nov 13, 1:29 PM ET.
+
+Still open from the sandbox plan: subscribe `POST /api/v1/webhooks/create` for `payout.transfer.*` and confirm `payout.transfer.cancelled` delivery on the auto-cancel path.
 
 ## Open questions
 
@@ -120,4 +176,4 @@ Still open:
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).

@@ -1,0 +1,175 @@
+{
+  "schema": "two-key.agent-run.v1",
+  "at": "2026-11-13T02:37:54.232Z",
+  "provider": "MOCK Airwallex fixture. No Airwallex call. No money moved.",
+  "models": {
+    "planner": "baidu/ernie-5.5-flash-preview:free",
+    "wringer": "baidu/ernie-5.5-flash-preview:free"
+  },
+  "rule": "Hard Wringer checks are code. Model objections can add, never clear. The planner model may only replace the summary text.",
+  "calls": [
+    {
+      "role": "planner",
+      "model": "baidu/ernie-5.5-flash-preview:free",
+      "served": "baidu/ernie-5.5-flash-preview:free",
+      "ok": true,
+      "parsed": true,
+      "raw": "{\n  \"summary\": \"Approve the filed moves: readBack shows the original CANCELLED with zero pending/reserved, so no funds are held; ignore webhook PROCESSING/duplicate events. Beneficiary correction is confirmed: update payee before the retry and use a new request_id. Keep the deferral until supplier settles, and ensure FX funding preserves the reserve. Human approval is required because the retry exceeds the threshold.\",\n  \"moves\": []\n}"
+    },
+    {
+      "role": "wringer",
+      "model": "baidu/ernie-5.5-flash-preview:free",
+      "served": "baidu/ernie-5.5-flash-preview:free",
+      "ok": true,
+      "parsed": true,
+      "raw": "{\"objections\":[{\"check\":\"insufficient_funds\",\"severity\":\"block\",\"detail\":\"USD available is only 22000, but each retry is 40000 USD. A single retry cannot be funded, and the plan schedules no fx_conversion to tap the 60000 EUR balance. The executor funds before retry_transfer, so the transfer errors on insufficient funds and the run stops at the first error — nothing goes out. This is separate from the reserve floor: even one corrected $40000 transfer is unfundable from current USD (22000 - 40000 = -18000).\"},{\"check\":\"missing_correct_beneficiary_move\",\"severity\":\"note\",\"detail\":\"The actions list has only two retry_transfer moves and no correct_beneficiary move, so the confirmed correction (accountName/companyName 'Northwind Steel Fabrication LLC', same accountLast4 4417, callback-verified) is never written to beneficiary 9a45987e. To let the transfer pass INVALID_ACCOUNT_NAME_OR_NUMBER, schedule a correct_beneficiary move calling POST /api/v1/beneficiaries/{id}/update with exactly those names before the retry (executor order: correct_beneficiary then retry_transfer).\"}]}"
+    },
+    {
+      "role": "planner",
+      "model": "baidu/ernie-5.5-flash-preview:free",
+      "served": "baidu/ernie-5.5-flash-preview:free",
+      "ok": true,
+      "parsed": true,
+      "raw": "{\n  \"summary\": \"Use read-back, not PROCESSING webhook: original is CANCELLED with no holds, so retry is safe only with a new stable request_id and beneficiary corrected to Northwind Steel Fabrication LLC. Execute quoted FX first to cover shortfall and preserve reserve; defer marketing payout until supplier settles so it cannot breach the floor.\",\n  \"moves\": [\n    {\n      \"move\": \"defer_payout\",\n      \"comment\": \"Defer the marketing payout until supplier settles, but do not let this hold consume the post-transfer USD buffer; otherwise it breaches the reserve.\"\n    },\n    {\n      \"move\": \"fx_conversion\",\n      \"comment\": \"Execute the quoted FX conversion before retry, within its validity window; it covers the USD shortfall and leaves the required reserve.\"\n    },\n    {\n      \"move\": \"retry_transfer\",\n      \"comment\": \"Proceed only after read-back confirms cancellation, a correct_beneficiary update to Northwind Steel Fabrication LLC is applied, and a new stable request_id is used; otherwise hold to avoid double payment or mismatch.\"\n    }\n  ]\n}"
+    },
+    {
+      "role": "wringer",
+      "model": "baidu/ernie-5.5-flash-preview:free",
+      "served": "baidu/ernie-5.5-flash-preview:free",
+      "ok": true,
+      "parsed": true,
+      "raw": "{\"objections\":[{\"check\":\"fx_quote_expiry\",\"severity\":\"note\",\"detail\":\"The FX leg gets 28,000 USD, which brings USD to 50,000. That leaves exactly the 10,000 reserve after the 40,000 retry. But the quote expires at 14:15, which is 15 minutes after now (14:00). The executor runs only after a human approves, and 40,000 is over the 10,000 approval threshold. If approval and execution come after 14:15, the FX leg fails. The run then stops before the retry, and the invoice stays unpaid. Fix the amount after a re-quote.\"},{\"check\":\"retry_reference_mismatch\",\"severity\":\"note\",\"detail\":\"The retry keeps the reference 'INV-2291 Northwind Steel'. That name no longer matches the corrected payee, 'Northwind Steel Fabrication LLC'. It probably will not change the bank's name check, but it makes reconciliation harder and could raise a question at approval. Consider 'INV-2291 Northwind Steel Fabrication LLC'.\"}]}"
+    }
+  ],
+  "rounds": [
+    {
+      "round": 1,
+      "summary": "Approve the filed moves: readBack shows the original CANCELLED with zero pending/reserved, so no funds are held; ignore webhook PROCESSING/duplicate events. Beneficiary correction is confirmed: update payee before the retry and use a new request_id. Keep the deferral until supplier settles, and ensure FX funding preserves the reserve. Human approval is required because the retry exceeds the thr...",
+      "actions": [
+        "retry_transfer",
+        "retry_transfer"
+      ],
+      "findings": [
+        {
+          "check": "duplicate_webhook",
+          "severity": "note",
+          "source": "code",
+          "detail": "Event(s) evt_failed_01 x2 delivered more than once; counted once."
+        },
+        {
+          "check": "double_payment",
+          "severity": "block",
+          "source": "code",
+          "detail": "2 retries proposed for one failed transfer (1 unique failure event). That pays the supplier 2 times."
+        },
+        {
+          "check": "unstable_request_id",
+          "severity": "block",
+          "source": "code",
+          "detail": "Retry uses request_id 92a1f546-3b61-991c-ce36-09a72f35bbd3, not the intent's stable id."
+        },
+        {
+          "check": "out_of_order_webhook",
+          "severity": "note",
+          "source": "code",
+          "detail": "Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}."
+        },
+        {
+          "check": "beneficiary_unchanged_after_mismatch",
+          "severity": "block",
+          "source": "code",
+          "detail": "The original failed on the payee name or account (INVALID_ACCOUNT_NAME_OR_NUMBER). This retry goes to beneficiary 9a45987e-cffc-4f0a-81d7-[digits] unchanged. It would fail the same way."
+        },
+        {
+          "check": "reserve_breach",
+          "severity": "block",
+          "source": "code",
+          "detail": "USD would end at -65000 after queued payouts, below the 10000 reserve."
+        },
+        {
+          "check": "insufficient_funds",
+          "severity": "block",
+          "source": "model",
+          "detail": "USD available is only 22000, but each retry is 40000 USD. A single retry cannot be funded, and the plan schedules no fx_conversion to tap the 60000 EUR balance. The executor funds before retry_transfer, so the transfer errors on insufficient funds and the run stops at the first error — nothing goes out. This is separate from the reserve floor: even one corrected $40000 transfer is unfundable from current USD (22000 - 40000 = -18000)."
+        },
+        {
+          "check": "missing_correct_beneficiary_move",
+          "severity": "note",
+          "source": "model",
+          "detail": "The actions list has only two retry_transfer moves and no correct_beneficiary move, so the confirmed correction (accountName/companyName 'Northwind Steel Fabrication LLC', same accountLast4 4417, callback-verified) is never written to beneficiary 9a45987e. To let the transfer pass INVALID_ACCOUNT_NAME_OR_NUMBER, schedule a correct_beneficiary move calling POST /api/v1/beneficiaries/{id}/update with exactly those names before the retry (executor order: correct_beneficiary then retry_transfer)."
+        }
+      ],
+      "decision": "blocked"
+    },
+    {
+      "round": 2,
+      "summary": "Use read-back, not PROCESSING webhook: original is CANCELLED with no holds, so retry is safe only with a new stable request_id and beneficiary corrected to Northwind Steel Fabrication LLC. Execute quoted FX first to cover shortfall and preserve reserve; defer marketing payout until supplier settles so it cannot breach the floor.",
+      "actions": [
+        "fx_conversion",
+        "correct_beneficiary",
+        "retry_transfer",
+        "defer_payout"
+      ],
+      "findings": [
+        {
+          "check": "duplicate_webhook",
+          "severity": "note",
+          "source": "code",
+          "detail": "Event(s) evt_failed_01 x2 delivered more than once; counted once."
+        },
+        {
+          "check": "out_of_order_webhook",
+          "severity": "note",
+          "source": "code",
+          "detail": "Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}."
+        },
+        {
+          "check": "fx_quote_expiry",
+          "severity": "note",
+          "source": "model",
+          "detail": "The FX leg gets 28,000 USD, which brings USD to 50,000. That leaves exactly the 10,000 reserve after the 40,000 retry. But the quote expires at 14:15, which is 15 minutes after now (14:00). The executor runs only after a human approves, and 40,000 is over the 10,000 approval threshold. If approval and execution come after 14:15, the FX leg fails. The run then stops before the retry, and the invoice stays unpaid. Fix the amount after a re-quote."
+        },
+        {
+          "check": "retry_reference_mismatch",
+          "severity": "note",
+          "source": "model",
+          "detail": "The retry keeps the reference 'INV-2291 Northwind Steel'. That name no longer matches the corrected payee, 'Northwind Steel Fabrication LLC'. It probably will not change the bank's name check, but it makes reconciliation harder and could raise a question at approval. Consider 'INV-2291 Northwind Steel Fabrication LLC'."
+        }
+      ],
+      "decision": "approved"
+    }
+  ],
+  "calls_to_mock": {
+    "createTransfer": 1,
+    "createConversion": 1,
+    "createQuote": 1,
+    "updateBeneficiary": 1
+  },
+  "receipt": [
+    "Goal: Pay Northwind Steel INV-2291 (USD 40,000) once.",
+    "Plan: round 1. Approve the filed moves: readBack shows the original CANCELLED with zero pending/reserved, so no funds are held; ignore webhook PROCESSING/duplicate events. Beneficiary correction is confirmed: update payee before the retry and use a new request_id. Keep the deferral until supplier settles, and ensure FX funding preserves the reserve. Human approval is required because the retry exceeds the thr...",
+    "New information: the Wringer blocked round 1 on double_payment, unstable_request_id, beneficiary_unchanged_after_mismatch, reserve_breach, insufficient_funds. Read-back: GET /api/v1/transfers/43217eec-6053-4fe6-b760-[digits] is CANCELLED (INVALID_ACCOUNT_NAME_OR_NUMBER). GET /api/v1/balances/current shows USD pending 0 and reserved 0, so the original holds no money. Supplier confirmed the legal account name \"Northwind Steel Fabrication LLC\" for the account ending 4417 (supplier letter, confirmed by call-back to the number already on file). The stored payee says \"Northwind Steel\".",
+    "Revised decision: round 2. Use read-back, not PROCESSING webhook: original is CANCELLED with no holds, so retry is safe only with a new stable request_id and beneficiary corrected to Northwind Steel Fabrication LLC. Execute quoted FX first to cover shortfall and preserve reserve; defer marketing payout until supplier settles so it cannot breach the floor. Decision: approved by joe.",
+    "Resulting state: defer_payout ok, correct_beneficiary ok, fx_conversion ok, retry_transfer ok.",
+    "Round 1. Planner: Approve the filed moves: readBack shows the original CANCELLED with zero pending/reserved, so no funds are held; ignore webhook PROCESSING/duplicate events. Beneficiary correction is confirmed: update payee before the retry and use a new request_id. Keep the deferral until supplier settles, and ensure FX funding preserves the reserve. Human approval is required because the retry exceeds the thr...",
+    "  Wringer note [duplicate_webhook]: Event(s) evt_failed_01 x2 delivered more than once; counted once.",
+    "  Wringer BLOCK [double_payment]: 2 retries proposed for one failed transfer (1 unique failure event). That pays the supplier 2 times.",
+    "  Wringer BLOCK [unstable_request_id]: Retry uses request_id 92a1f546-3b61-991c-ce36-09a72f35bbd3, not the intent's stable id.",
+    "  Wringer note [out_of_order_webhook]: Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}.",
+    "  Wringer BLOCK [beneficiary_unchanged_after_mismatch]: The original failed on the payee name or account (INVALID_ACCOUNT_NAME_OR_NUMBER). This retry goes to beneficiary 9a45987e-cffc-4f0a-81d7-[digits] unchanged. It would fail the same way.",
+    "  Wringer BLOCK [reserve_breach]: USD would end at -65000 after queued payouts, below the 10000 reserve.",
+    "  Wringer BLOCK [insufficient_funds]: USD available is only 22000, but each retry is 40000 USD. A single retry cannot be funded, and the plan schedules no fx_conversion to tap the 60000 EUR balance. The executor funds before retry_transfer, so the transfer errors on insufficient funds and the run stops at the first error — nothing goes out. This is separate from the reserve floor: even one corrected $40000 transfer is unfundable from current USD (22000 - 40000 = -18000).",
+    "  Wringer note [missing_correct_beneficiary_move]: The actions list has only two retry_transfer moves and no correct_beneficiary move, so the confirmed correction (accountName/companyName 'Northwind Steel Fabrication LLC', same accountLast4 4417, callback-verified) is never written to beneficiary 9a45987e. To let the transfer pass INVALID_ACCOUNT_NAME_OR_NUMBER, schedule a correct_beneficiary move calling POST /api/v1/beneficiaries/{id}/update with exactly those names before the retry (executor order: correct_beneficiary then retry_transfer).",
+    "  Decision: blocked",
+    "Round 2. Planner: Use read-back, not PROCESSING webhook: original is CANCELLED with no holds, so retry is safe only with a new stable request_id and beneficiary corrected to Northwind Steel Fabrication LLC. Execute quoted FX first to cover shortfall and preserve reserve; defer marketing payout until supplier settles so it cannot breach the floor.",
+    "  Wringer note [duplicate_webhook]: Event(s) evt_failed_01 x2 delivered more than once; counted once.",
+    "  Wringer note [out_of_order_webhook]: Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}.",
+    "  Wringer note [fx_quote_expiry]: The FX leg gets 28,000 USD, which brings USD to 50,000. That leaves exactly the 10,000 reserve after the 40,000 retry. But the quote expires at 14:15, which is 15 minutes after now (14:00). The executor runs only after a human approves, and 40,000 is over the 10,000 approval threshold. If approval and execution come after 14:15, the FX leg fails. The run then stops before the retry, and the invoice stays unpaid. Fix the amount after a re-quote.",
+    "  Wringer note [retry_reference_mismatch]: The retry keeps the reference 'INV-2291 Northwind Steel'. That name no longer matches the corrected payee, 'Northwind Steel Fabrication LLC'. It probably will not change the bank's name check, but it makes reconciliation harder and could raise a question at approval. Consider 'INV-2291 Northwind Steel Fabrication LLC'.",
+    "  Decision: approved, approved by joe",
+    "  Executed defer_payout request_id=defer:queued_marketing_7000: ok",
+    "  Executed correct_beneficiary request_id=570f0729-3bee-e5fa-2ff4-0dd1e7bc75c8: ok (9a45987e-cffc-4f0a-81d7-[digits])",
+    "  Executed fx_conversion request_id=e57286ec-aede-36bc-62c1-ed72e395d09d: ok (9fbfb2b8-a037-4950-9cde-dcca688c3d3c)",
+    "  Executed retry_transfer request_id=c624d34b-1b4c-cbfb-723a-e3f5d031cd83: ok (b1aa461c-7ea4-43e9-8940-fe01ce50f835)"
+  ]
+}

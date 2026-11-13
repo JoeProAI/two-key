@@ -162,6 +162,7 @@ const action = v.union(
   v.object({ kind: v.literal("retry_transfer"), originalTransferId: v.string(), amount: v.number(), currency: v.string(), beneficiaryId: v.string(), reference: v.string(), requestId: v.string() }),
   v.object({ kind: v.literal("fx_conversion"), buyCurrency: v.string(), sellCurrency: v.string(), buyAmount: v.number(), quoteId: v.string(), quoteValidToAt: v.string(), requestId: v.string() }),
   v.object({ kind: v.literal("defer_payout"), payoutId: v.string(), amount: v.number(), currency: v.string(), until: v.string() }),
+  v.object({ kind: v.literal("correct_beneficiary"), beneficiaryId: v.string(), companyName: v.string(), accountName: v.string(), requestId: v.string() }),
 );
 
 /** Replace the narrative rows for one intent and upsert executions by request_id with the finish rules,
@@ -184,6 +185,7 @@ export const upsertIncident = mutationGeneric({
     decisions: v.array(v.object({
       key: v.string(), proposalKey: v.string(), plannerAgrees: v.boolean(), wringerAgrees: v.boolean(), needsHuman: v.boolean(),
       humanApprovedBy: v.optional(v.string()), humanApprovedAt: v.optional(v.number()), expiredAt: v.optional(v.number()),
+      boundDigest: v.optional(v.string()), evidenceDigest: v.optional(v.string()),
       status: v.union(v.literal("blocked"), v.literal("awaiting_human"), v.literal("approved"), v.literal("expired")), createdAt: v.number(),
     })),
     executions: v.array(v.object({

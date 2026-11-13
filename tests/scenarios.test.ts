@@ -31,7 +31,7 @@ describe("scenario (b): payout over the approval threshold", () => {
     expect(r.waits.length).toBeGreaterThan(0);
     expect(r.waits.every((w) => w.status === "awaiting_human" && w.transfersCreated === 0)).toBe(true);
     expect(r.decision.status).toBe("approved");
-    expect(r.executions.map((e) => [e.actionKind, e.result])).toEqual([["retry_transfer", "ok"]]);
+    expect(r.executions.map((e) => [e.actionKind, e.result])).toEqual([["correct_beneficiary", "ok"], ["retry_transfer", "ok"]]);
     expect(r.awx.calls.createTransfer).toBe(1);
   });
   it("times out: expires, moves nothing, and refuses a late tap", async () => {
@@ -52,5 +52,15 @@ describe("scenario (b): payout over the approval threshold", () => {
 describe("demo CLI scenarios", () => {
   it("every named scenario runs", async () => {
     for (const run of Object.values(SCENARIOS)) expect((await run()).receipt).toBeTruthy();
+  });
+});
+
+describe("builder-guide arc", () => {
+  it("labels Goal, Plan, New information, Revised decision, Resulting state on the receipt", async () => {
+    const res = await SCENARIOS.main();
+    const lines = res.receipt!.lines;
+    expect(lines.slice(0, 5).map((l) => l.split(":")[0])).toEqual(["Goal", "Plan", "New information", "Revised decision", "Resulting state"]);
+    expect(lines[2]).toMatch(/blocked round 1 on double_payment/);
+    expect(lines[3]).toMatch(/round 2\..*Decision: approved by joe/);
   });
 });

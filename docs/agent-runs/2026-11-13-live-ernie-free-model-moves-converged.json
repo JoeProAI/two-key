@@ -1,0 +1,276 @@
+{
+  "schema": "two-key.agent-run.v2",
+  "at": "2026-11-13T02:53:29.567Z",
+  "provider": "MOCK Airwallex fixture. No Airwallex call. No money moved.",
+  "models": {
+    "planner": "baidu/ernie-5.5-flash-preview:free",
+    "wringer": "baidu/ernie-5.5-flash-preview:free"
+  },
+  "rule": "The planner model proposes the moves from a closed set (correct_beneficiary, fx_conversion, retry_transfer, defer_payout). Code checks the schema, recomputes every request_id, quote id and payout amount, and runs the hard Wringer checks on the model's own moves. A reply that breaks the schema is discarded and the fixture moves for that round stand (proposedBy: fallback). Model objections can add blocks, never clear a code block.",
+  "calls": [
+    {
+      "role": "planner",
+      "model": "baidu/ernie-5.5-flash-preview:free",
+      "served": "baidu/ernie-5.5-flash-preview:free",
+      "ok": true,
+      "parsed": true,
+      "raw": "{\"summary\":\"Original USD 40,000 transfer to Northwind Steel was auto-cancelled (account name mismatch); read-back confirms pending 0, reserved 0, so no funds are held. Fix the payee to the supplier-confirmed legal name, buy USD 28,000 with EUR (matching the live quote), then file a fresh retry for USD 40,000. USD on hand would fall to 10,000, so the 7,000 USD agency retainer must be deferred to keep the 10,000 reserve floor. Webhook duplicates (same single failed event, 2 deliveries) carry no action; arrival-time PROCESSING is stale.\",\"moves\":[{\"kind\":\"defer_payout\",\"payoutId\":\"queued_marketing_7000\"},{\"kind\":\"correct_beneficiary\",\"beneficiaryId\":\"9a45987e-cffc-4f0a-81d7-[digits]\",\"companyName\":\"Northwind Steel Fabrication LLC\",\"accountName\":\"Northwind Steel Fabrication LLC\"},{\"kind\":\"fx_conversion\",\"buyCurrency\":\"USD\",\"sellCurrency\":\"EUR\",\"buyAmount\":28000},{\"kind\":\"retry_transfer\",\"amount\":40000,\"currency\":\"USD\",\"beneficiaryId\":\"9a45987e-cffc-4f0a-81d7-[digits]\"}]}"
+    },
+    {
+      "role": "wringer",
+      "model": "baidu/ernie-5.5-flash-preview:free",
+      "served": "baidu/ernie-5.5-flash-preview:free",
+      "ok": true,
+      "parsed": true,
+      "raw": "{\"objections\":[{\"check\":\"reserve_floor\",\"severity\":\"block\",\"detail\":\"Counting the 7,000 USD deferral hold, the plan leaves only 3,000 USD unencumbered after the retry: 22,000 available + 28,000 FX buy - 40,000 transfer - 7,000 deferred payout = 3,000, below the 10,000 USD reserve floor. Increase the FX buy amount or remove/reduce the deferral.\"}]}"
+    },
+    {
+      "role": "planner",
+      "model": "baidu/ernie-5.5-flash-preview:free",
+      "served": "baidu/ernie-5.5-flash-preview:free",
+      "ok": true,
+      "parsed": true,
+      "raw": "{\"summary\":\"Original USD 40k transfer was cancelled with no funds held. Correct the Northwind Steel payee, convert EUR to USD 28k per the quote, and retry the 40k USD transfer. No payout deferral this round, leaving the USD reserve at 10k after the retry.\",\"moves\":[{\"kind\":\"correct_beneficiary\",\"beneficiaryId\":\"9a45987e-cffc-4f0a-81d7-[digits]\",\"companyName\":\"Northwind Steel Fabrication LLC\",\"accountName\":\"Northwind Steel Fabrication LLC\"},{\"kind\":\"fx_conversion\",\"buyCurrency\":\"USD\",\"sellCurrency\":\"EUR\",\"buyAmount\":28000},{\"kind\":\"retry_transfer\",\"amount\":40000,\"currency\":\"USD\",\"beneficiaryId\":\"9a45987e-cffc-4f0a-81d7-[digits]\"}]}"
+    },
+    {
+      "role": "wringer",
+      "model": "baidu/ernie-5.5-flash-preview:free",
+      "served": "baidu/ernie-5.5-flash-preview:free",
+      "ok": true,
+      "parsed": true,
+      "raw": "{\"objections\":[{\"check\":\"fx_quote_expiry\",\"severity\":\"note\",\"detail\":\"The FX quote is valid only until 2026-11-02T14:15:00+0000, and now is 2026-11-02T14:00:00+0000. Since execution happens after human approval, fx_conversion must complete before 14:15 or it will fail; confirm approval/execution timing or refresh the quote.\"}]}"
+    },
+    {
+      "role": "planner",
+      "model": "baidu/ernie-5.5-flash-preview:free",
+      "served": "baidu/ernie-5.5-flash-preview:free",
+      "ok": true,
+      "parsed": true,
+      "raw": "{\"summary\": \"Cancelled original holds no funds; correct the supplier's confirmed name, buy 28,000 USD with EUR, then file a new retry of 40,000 USD. Deferring the 7,000 marketing payout (due in 9 days) keeps USD at the 10,000 floor. FX quote expires 14:15.\", \"moves\": [{\"kind\": \"defer_payout\", \"payoutId\": \"queued_marketing_7000\"}, {\"kind\": \"correct_beneficiary\", \"beneficiaryId\": \"9a45987e-cffc-4f0a-81d7-[digits]\", \"companyName\": \"Northwind Steel Fabrication LLC\", \"accountName\": \"Northwind Steel Fabrication LLC\"}, {\"kind\": \"fx_conversion\", \"buyCurrency\": \"USD\", \"sellCurrency\": \"EUR\", \"buyAmount\": 28000}, {\"kind\": \"retry_transfer\", \"amount\": 40000, \"currency\": \"USD\", \"beneficiaryId\": \"9a45987e-cffc-4f0a-81d7-[digits]\"}]}"
+    },
+    {
+      "role": "wringer",
+      "model": "baidu/ernie-5.5-flash-preview:free",
+      "served": "baidu/ernie-5.5-flash-preview:free",
+      "ok": true,
+      "parsed": true,
+      "raw": "{\"objections\":[{\"check\":\"fx_quote_expiry_vs_approval\",\"severity\":\"note\",\"detail\":\"The FX quote is valid 2026-11-02T14:00:00Z to 14:15:00Z (MIN_15), so it is live at `now` (14:00:00Z) but expires in 15 minutes. Human approval comes after this review. If approval lands after 14:15, the FX leg errors out, the run stops at the first error, and the retry_transfer never executes, so Northwind stays unpaid. The remaining USD of 22,000 would not cover the 40,000 retry. Check approval timing, or re-quote if the window closes.\"},{\"check\":\"defer_release_timing\",\"severity\":\"note\",\"detail\":\"The defer_payout's release condition is 'after supplier settles', but the executor runs defer_payout first. The 7,000 USD hold would be released before the retry settles the supplier. In any failure path the retainer's deferral is already gone while Northwind is still unpaid.\"}]}"
+    }
+  ],
+  "rounds": [
+    {
+      "round": 1,
+      "proposedBy": "model",
+      "summary": "Original USD 40,000 transfer to Northwind Steel was auto-cancelled (account name mismatch); read-back confirms pending 0, reserved 0, so no funds are held. Fix the payee to the supplier-confirmed legal name, buy USD 28,000 with EUR (matching the live quote), then file a fresh retry for USD 40,000. USD on hand would fall to 10,000, so the 7,000 USD agency retainer must be deferred to keep the 10...",
+      "proposal": [
+        {
+          "kind": "defer_payout",
+          "payoutId": "queued_marketing_7000",
+          "amount": 7000,
+          "currency": "USD",
+          "until": "after supplier settles"
+        },
+        {
+          "kind": "correct_beneficiary",
+          "beneficiaryId": "9a45987e-cffc-4f0a-81d7-[digits]",
+          "companyName": "Northwind Steel Fabrication LLC",
+          "accountName": "Northwind Steel Fabrication LLC",
+          "requestId": "570f0729-3bee-e5fa-2ff4-0dd1e7bc75c8"
+        },
+        {
+          "kind": "fx_conversion",
+          "buyCurrency": "USD",
+          "sellCurrency": "EUR",
+          "buyAmount": 28000,
+          "quoteId": "42043af4-900f-4ea4-bcb3-18b255ac1b00",
+          "quoteValidToAt": "2026-11-02T14:15:00+0000",
+          "requestId": "e57286ec-aede-36bc-62c1-ed72e395d09d"
+        },
+        {
+          "kind": "retry_transfer",
+          "originalTransferId": "43217eec-6053-4fe6-b760-[digits]",
+          "amount": 40000,
+          "currency": "USD",
+          "beneficiaryId": "9a45987e-cffc-4f0a-81d7-[digits]",
+          "reference": "INV-2291 Northwind Steel",
+          "requestId": "c624d34b-1b4c-cbfb-723a-e3f5d031cd83"
+        }
+      ],
+      "codeFindings": [
+        {
+          "check": "duplicate_webhook",
+          "severity": "note",
+          "detail": "Event(s) evt_failed_01 x2 delivered more than once; counted once."
+        },
+        {
+          "check": "out_of_order_webhook",
+          "severity": "note",
+          "detail": "Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}."
+        }
+      ],
+      "modelFindings": [
+        {
+          "check": "reserve_floor",
+          "severity": "block",
+          "detail": "Counting the 7,000 USD deferral hold, the plan leaves only 3,000 USD unencumbered after the retry: 22,000 available + 28,000 FX buy - 40,000 transfer - 7,000 deferred payout = 3,000, below the 10,000 USD reserve floor. Increase the FX buy amount or remove/reduce the deferral."
+        }
+      ],
+      "decision": "blocked"
+    },
+    {
+      "round": 2,
+      "proposedBy": "model",
+      "summary": "Original USD 40k transfer was cancelled with no funds held. Correct the Northwind Steel payee, convert EUR to USD 28k per the quote, and retry the 40k USD transfer. No payout deferral this round, leaving the USD reserve at 10k after the retry.",
+      "proposal": [
+        {
+          "kind": "correct_beneficiary",
+          "beneficiaryId": "9a45987e-cffc-4f0a-81d7-[digits]",
+          "companyName": "Northwind Steel Fabrication LLC",
+          "accountName": "Northwind Steel Fabrication LLC",
+          "requestId": "570f0729-3bee-e5fa-2ff4-0dd1e7bc75c8"
+        },
+        {
+          "kind": "fx_conversion",
+          "buyCurrency": "USD",
+          "sellCurrency": "EUR",
+          "buyAmount": 28000,
+          "quoteId": "1b5c4c39-220d-4036-8c6f-9203632caa7e",
+          "quoteValidToAt": "2026-11-02T14:15:00+0000",
+          "requestId": "e57286ec-aede-36bc-62c1-ed72e395d09d"
+        },
+        {
+          "kind": "retry_transfer",
+          "originalTransferId": "43217eec-6053-4fe6-b760-[digits]",
+          "amount": 40000,
+          "currency": "USD",
+          "beneficiaryId": "9a45987e-cffc-4f0a-81d7-[digits]",
+          "reference": "INV-2291 Northwind Steel",
+          "requestId": "c624d34b-1b4c-cbfb-723a-e3f5d031cd83"
+        }
+      ],
+      "codeFindings": [
+        {
+          "check": "duplicate_webhook",
+          "severity": "note",
+          "detail": "Event(s) evt_failed_01 x2 delivered more than once; counted once."
+        },
+        {
+          "check": "out_of_order_webhook",
+          "severity": "note",
+          "detail": "Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}."
+        },
+        {
+          "check": "reserve_breach",
+          "severity": "block",
+          "detail": "USD would end at 3000 after queued payouts, below the 10000 reserve."
+        }
+      ],
+      "modelFindings": [
+        {
+          "check": "fx_quote_expiry",
+          "severity": "note",
+          "detail": "The FX quote is valid only until 2026-11-02T14:15:00+0000, and now is 2026-11-02T14:00:00+0000. Since execution happens after human approval, fx_conversion must complete before 14:15 or it will fail; confirm approval/execution timing or refresh the quote."
+        }
+      ],
+      "decision": "blocked"
+    },
+    {
+      "round": 3,
+      "proposedBy": "model",
+      "summary": "Cancelled original holds no funds; correct the supplier's confirmed name, buy 28,000 USD with EUR, then file a new retry of 40,000 USD. Deferring the 7,000 marketing payout (due in 9 days) keeps USD at the 10,000 floor. FX quote expires 14:15.",
+      "proposal": [
+        {
+          "kind": "defer_payout",
+          "payoutId": "queued_marketing_7000",
+          "amount": 7000,
+          "currency": "USD",
+          "until": "after supplier settles"
+        },
+        {
+          "kind": "correct_beneficiary",
+          "beneficiaryId": "9a45987e-cffc-4f0a-81d7-[digits]",
+          "companyName": "Northwind Steel Fabrication LLC",
+          "accountName": "Northwind Steel Fabrication LLC",
+          "requestId": "570f0729-3bee-e5fa-2ff4-0dd1e7bc75c8"
+        },
+        {
+          "kind": "fx_conversion",
+          "buyCurrency": "USD",
+          "sellCurrency": "EUR",
+          "buyAmount": 28000,
+          "quoteId": "6665cbd7-3407-40e0-bac3-cf85cbdc9293",
+          "quoteValidToAt": "2026-11-02T14:15:00+0000",
+          "requestId": "e57286ec-aede-36bc-62c1-ed72e395d09d"
+        },
+        {
+          "kind": "retry_transfer",
+          "originalTransferId": "43217eec-6053-4fe6-b760-[digits]",
+          "amount": 40000,
+          "currency": "USD",
+          "beneficiaryId": "9a45987e-cffc-4f0a-81d7-[digits]",
+          "reference": "INV-2291 Northwind Steel",
+          "requestId": "c624d34b-1b4c-cbfb-723a-e3f5d031cd83"
+        }
+      ],
+      "codeFindings": [
+        {
+          "check": "duplicate_webhook",
+          "severity": "note",
+          "detail": "Event(s) evt_failed_01 x2 delivered more than once; counted once."
+        },
+        {
+          "check": "out_of_order_webhook",
+          "severity": "note",
+          "detail": "Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}."
+        }
+      ],
+      "modelFindings": [
+        {
+          "check": "fx_quote_expiry_vs_approval",
+          "severity": "note",
+          "detail": "The FX quote is valid 2026-11-02T14:00:00Z to 14:15:00Z (MIN_15), so it is live at `now` (14:00:00Z) but expires in 15 minutes. Human approval comes after this review. If approval lands after 14:15, the FX leg errors out, the run stops at the first error, and the retry_transfer never executes, so Northwind stays unpaid. The remaining USD of 22,000 would not cover the 40,000 retry. Check approval timing, or re-quote if the window closes."
+        },
+        {
+          "check": "defer_release_timing",
+          "severity": "note",
+          "detail": "The defer_payout's release condition is 'after supplier settles', but the executor runs defer_payout first. The 7,000 USD hold would be released before the retry settles the supplier. In any failure path the retainer's deferral is already gone while Northwind is still unpaid."
+        }
+      ],
+      "decision": "approved"
+    }
+  ],
+  "calls_to_mock": {
+    "createTransfer": 1,
+    "createConversion": 1,
+    "createQuote": 3,
+    "updateBeneficiary": 1
+  },
+  "receipt": [
+    "Goal: Pay Northwind Steel INV-2291 (USD 40,000) once.",
+    "Plan: round 1. Original USD 40,000 transfer to Northwind Steel was auto-cancelled (account name mismatch); read-back confirms pending 0, reserved 0, so no funds are held. Fix the payee to the supplier-confirmed legal name, buy USD 28,000 with EUR (matching the live quote), then file a fresh retry for USD 40,000. USD on hand would fall to 10,000, so the 7,000 USD agency retainer must be deferred to keep the 10...",
+    "New information: the Wringer blocked round 1 on reserve_floor. Read-back: GET /api/v1/transfers/43217eec-6053-4fe6-b760-[digits] is CANCELLED (INVALID_ACCOUNT_NAME_OR_NUMBER). GET /api/v1/balances/current shows USD pending 0 and reserved 0, so the original holds no money. Supplier confirmed the legal account name \"Northwind Steel Fabrication LLC\" for the account ending 4417 (supplier letter, confirmed by call-back to the number already on file). The stored payee says \"Northwind Steel\".",
+    "Revised decision: round 3. Cancelled original holds no funds; correct the supplier's confirmed name, buy 28,000 USD with EUR, then file a new retry of 40,000 USD. Deferring the 7,000 marketing payout (due in 9 days) keeps USD at the 10,000 floor. FX quote expires 14:15. Decision: approved by joe.",
+    "Resulting state: defer_payout ok, correct_beneficiary ok, fx_conversion ok, retry_transfer ok.",
+    "Round 1. Planner: Original USD 40,000 transfer to Northwind Steel was auto-cancelled (account name mismatch); read-back confirms pending 0, reserved 0, so no funds are held. Fix the payee to the supplier-confirmed legal name, buy USD 28,000 with EUR (matching the live quote), then file a fresh retry for USD 40,000. USD on hand would fall to 10,000, so the 7,000 USD agency retainer must be deferred to keep the 10...",
+    "  Wringer note [duplicate_webhook]: Event(s) evt_failed_01 x2 delivered more than once; counted once.",
+    "  Wringer note [out_of_order_webhook]: Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}.",
+    "  Wringer BLOCK [reserve_floor]: Counting the 7,000 USD deferral hold, the plan leaves only 3,000 USD unencumbered after the retry: 22,000 available + 28,000 FX buy - 40,000 transfer - 7,000 deferred payout = 3,000, below the 10,000 USD reserve floor. Increase the FX buy amount or remove/reduce the deferral.",
+    "  Decision: blocked",
+    "Round 2. Planner: Original USD 40k transfer was cancelled with no funds held. Correct the Northwind Steel payee, convert EUR to USD 28k per the quote, and retry the 40k USD transfer. No payout deferral this round, leaving the USD reserve at 10k after the retry.",
+    "  Wringer note [duplicate_webhook]: Event(s) evt_failed_01 x2 delivered more than once; counted once.",
+    "  Wringer note [out_of_order_webhook]: Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}.",
+    "  Wringer BLOCK [reserve_breach]: USD would end at 3000 after queued payouts, below the 10000 reserve.",
+    "  Wringer note [fx_quote_expiry]: The FX quote is valid only until 2026-11-02T14:15:00+0000, and now is 2026-11-02T14:00:00+0000. Since execution happens after human approval, fx_conversion must complete before 14:15 or it will fail; confirm approval/execution timing or refresh the quote.",
+    "  Decision: blocked",
+    "Round 3. Planner: Cancelled original holds no funds; correct the supplier's confirmed name, buy 28,000 USD with EUR, then file a new retry of 40,000 USD. Deferring the 7,000 marketing payout (due in 9 days) keeps USD at the 10,000 floor. FX quote expires 14:15.",
+    "  Wringer note [duplicate_webhook]: Event(s) evt_failed_01 x2 delivered more than once; counted once.",
+    "  Wringer note [out_of_order_webhook]: Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}.",
+    "  Wringer note [fx_quote_expiry_vs_approval]: The FX quote is valid 2026-11-02T14:00:00Z to 14:15:00Z (MIN_15), so it is live at `now` (14:00:00Z) but expires in 15 minutes. Human approval comes after this review. If approval lands after 14:15, the FX leg errors out, the run stops at the first error, and the retry_transfer never executes, so Northwind stays unpaid. The remaining USD of 22,000 would not cover the 40,000 retry. Check approval timing, or re-quote if the window closes.",
+    "  Wringer note [defer_release_timing]: The defer_payout's release condition is 'after supplier settles', but the executor runs defer_payout first. The 7,000 USD hold would be released before the retry settles the supplier. In any failure path the retainer's deferral is already gone while Northwind is still unpaid.",
+    "  Decision: approved, approved by joe",
+    "  Executed defer_payout request_id=defer:queued_marketing_7000: ok",
+    "  Executed correct_beneficiary request_id=570f0729-3bee-e5fa-2ff4-0dd1e7bc75c8: ok (9a45987e-cffc-4f0a-81d7-[digits])",
+    "  Executed fx_conversion request_id=e57286ec-aede-36bc-62c1-ed72e395d09d: ok (8503fcf2-0398-4dc8-8283-a57264bdfa30)",
+    "  Executed retry_transfer request_id=c624d34b-1b4c-cbfb-723a-e3f5d031cd83: ok (5654c304-a591-4552-a70b-6fd81f228593)"
+  ]
+}

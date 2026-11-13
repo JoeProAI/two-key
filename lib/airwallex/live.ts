@@ -2,6 +2,8 @@ import "server-only";
 import {
   AirwallexError,
   type AirwallexClient,
+  type BeneficiaryCorrection,
+  type BeneficiaryView,
   type Balance,
   type Conversion,
   type ConversionList,
@@ -19,6 +21,28 @@ import {
 // plus scripts/leak-scan.mjs check that neither the names nor the values reach a bundle.
 
 const REFRESH_MARGIN_MS = 5 * 60_000; // refresh 5 min before expires_at
+const SANDBOX_HOST = "api.sandbox.airwallex.com";
+
+/** Live calls may use only the Airwallex sandbox host. Production and any other host are refused. */
+export function sandboxOrigin(raw: string | undefined): string {
+  const input = raw?.trim() || `https://${SANDBOX_HOST}`;
+  let url: URL;
+  try {
+    url = new URL(input);
+  } catch {
+    throw new Error("AIRWALLEX_BASE_URL is not a URL. Sandbox only.");
+  }
+  if (url.protocol !== "https:" || url.hostname !== SANDBOX_HOST || url.username || url.password) {
+    throw new Error(`Refusing host ${url.hostname || "(none)"}. Sandbox only (https://${SANDBOX_HOST}).`);
+  }
+  return url.origin;
+}
+
+/** Names only. Empty when the sandbox client can be constructed. Does not read or print values. */
+export function missingSandboxEnv(env: NodeJS.ProcessEnv): string[] {
+  const names = ["AIRWALLEX_CLIENT_ID", "AIRWALLEX_API_KEY"] as const;
+  return names.filter((name) => !env[name]);
+}
 
 export interface SandboxOps {
   /** POST /api/v1/authentication/login. Returns the HTTP status only, never the token. */
@@ -38,7 +62,7 @@ export function createLiveClient(env: NodeJS.ProcessEnv = process.env, fetchImpl
   if (!clientId || !apiKey) {
     throw new Error("AIRWALLEX_MODE=live needs AIRWALLEX_CLIENT_ID and AIRWALLEX_API_KEY (server env only).");
   }
-  const base = env.AIRWALLEX_BASE_URL || "https://api.sandbox.airwallex.com";
+  const base = sandboxOrigin(env.AIRWALLEX_BASE_URL);
   const loginAs = env.AIRWALLEX_LOGIN_AS;
   let token: { value: string; expiresAt: number } | null = null;
 
@@ -137,6 +161,20 @@ export function createLiveClient(env: NodeJS.ProcessEnv = process.env, fetchImpl
         next_status: nextStatus,
         ...(failureType ? { failure_type: failureType } : {}),
       }),
+
+    // GET /api/v1/beneficiaries/{id}. Projected: names and the last 4 of the account only.
+    async getBeneficiary(id: string) {
+      return projectBeneficiary(await call<RawBeneficiaryFull>("GET", `/api/v1/beneficiaries/${encodeURIComponent(id)}`));
+    },
+
+    // POST /api/v1/beneficiaries/{id}/update. The body is the stored beneficiary with only the two names changed.
+    async updateBeneficiary(id: string, fix: BeneficiaryCorrection) {
+      const raw = await call<RawBeneficiaryFull>("GET", `/api/v1/beneficiaries/${encodeURIComponent(id)}`);
+      const beneficiary = { ...(raw.beneficiary ?? {}), company_name: fix.companyName, bank_details: { ...(raw.beneficiary?.bank_details ?? {}), account_name: fix.accountName } };
+      const body = { beneficiary, transfer_methods: raw.transfer_methods ?? [], ...(raw.nickname ? { nickname: raw.nickname } : {}), ...(raw.payer_entity_type ? { payer_entity_type: raw.payer_entity_type } : {}) };
+      const updated = projectBeneficiary(await call<RawBeneficiaryFull>("POST", `/api/v1/beneficiaries/${encodeURIComponent(id)}/update`, body));
+      return { ...updated, id: updated.id ?? id };
+    },
 
     // Proves POST /api/v1/authentication/login without returning the token.
     async authenticate() {
@@ -249,6 +287,25 @@ interface ListBody<T> { items?: T[] }
 function unwrapItems<T>(body: ListBody<T> | T[] | null | undefined): T[] {
   if (Array.isArray(body)) return body;
   return body?.items ?? [];
+}
+
+interface RawBeneficiaryFull {
+  id: string;
+  nickname?: string;
+  payer_entity_type?: string;
+  transfer_methods?: string[];
+  beneficiary?: { company_name?: string; bank_details?: { account_name?: string; account_number?: string; iban?: string; [k: string]: unknown }; [k: string]: unknown };
+}
+
+function projectBeneficiary(raw: RawBeneficiaryFull): BeneficiaryView {
+  const acct = raw.beneficiary?.bank_details?.account_number ?? raw.beneficiary?.bank_details?.iban ?? "";
+  return {
+    id: raw.id,
+    companyName: raw.beneficiary?.company_name ?? "",
+    accountName: raw.beneficiary?.bank_details?.account_name ?? "",
+    accountLast4: acct.slice(-4),
+    nickname: raw.nickname,
+  };
 }
 
 interface RawBeneficiary {

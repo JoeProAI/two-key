@@ -72,6 +72,8 @@ describe("desk key gate", () => {
     const anon = await getDeskView();
     expect(anon.locked).toBe(true);
     expect(anon.canUnlock).toBe(true);
+    expect(anon.keyReason).toMatch(/stay closed/);
+    expect(anon.keyReason).not.toMatch(/Run the planner/);
     expect(anon.canApprove).toBe(false);
     expect(anon.rounds).toEqual([]);
     expect(anon.transfersCreated).toBeNull();
@@ -113,6 +115,7 @@ describe("desk key gate", () => {
     expect(closed.locked).toBe(true);
     expect(closed.canUnlock).toBe(false);
     expect(closed.lockNote).toMatch(/no desk key set/);
+    expect(closed.keyReason).toMatch(/stay closed/);
     await expect(openPlan(asJoe)).rejects.toThrow(/no desk key set/);
 
     vi.stubEnv("DESK_APPROVE_SECRET", KEY);

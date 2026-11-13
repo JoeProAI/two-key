@@ -165,22 +165,34 @@ describe("Live planner commentary", () => {
     return s;
   };
 
-  it("uses the model summary and keeps the filed moves", async () => {
+  it("a reply whose moves break the schema falls back to the filed moves, marked fallback", async () => {
     const s = quoted();
     const stub = stubPlan(s, 2, ["double_payment"]);
     const filed = await plan(s, 2, ["double_payment"], {
       env: llmEnv,
       chat: async () => ({ summary: "  Funding needs a EUR conversion\nbefore the retry. ", moves: [{ kind: "retry_transfer" }] }),
     });
-    expect(filed.summary).toBe("Funding needs a EUR conversion before the retry.");
+    expect(filed.source).toBe("fallback");
+    expect(filed.fallbackReason).toMatch(/retry_transfer fields/);
+    expect(filed.summary).toBe(stub.summary);
     expect(filed.actions).toEqual(stub.actions);
+  });
+
+  it("uses the model summary when its moves pass the schema", async () => {
+    const s = quoted();
+    const filed = await plan(s, 2, ["double_payment"], {
+      env: llmEnv,
+      chat: async () => ({ summary: "  Funding needs a EUR conversion\nbefore the retry. ", moves: [{ kind: "fx_conversion", buyCurrency: "USD", sellCurrency: "EUR", buyAmount: 28000 }] }),
+    });
+    expect(filed.source).toBe("model");
+    expect(filed.summary).toBe("Funding needs a EUR conversion before the retry.");
   });
 
   it("keeps the stub summary when the reply has no usable summary", async () => {
     const s = quoted();
     const stub = stubPlan(s, 2, ["double_payment"]);
     for (const reply of [{}, { summary: "" }, { summary: "   " }, { summary: 42 }, null, "just text"]) {
-      expect(await plan(s, 2, ["double_payment"], { env: llmEnv, chat: async () => reply })).toEqual(stub);
+      expect(await plan(s, 2, ["double_payment"], { env: llmEnv, chat: async () => reply })).toEqual({ ...stub, source: "fallback", fallbackReason: expect.any(String) });
     }
     const thrown = await plan(s, 2, ["double_payment"], {
       env: llmEnv,
@@ -188,7 +200,7 @@ describe("Live planner commentary", () => {
         throw new Error("OpenRouter planner call failed: 502");
       },
     });
-    expect(thrown).toEqual(stub);
+    expect(thrown).toEqual({ ...stub, source: "fallback", fallbackReason: expect.stringMatching(/model call failed/) });
   });
 
   it("caps a long summary", async () => {

@@ -2,23 +2,56 @@ import { describe, expect, it } from "vitest";
 import { createMockClient } from "@/lib/airwallex/mock";
 import { createLiveClient } from "@/lib/airwallex/live";
 import { runDemo } from "@/lib/scenario";
+import { reconcileSettled } from "@/lib/agents/reconcile";
 import { execute, decide, approve } from "@/lib/agents/executor";
+import { planDigest } from "@/lib/receipt/bind";
+import { fxRequestId } from "@/lib/requestId";
 import { MemoryLedger } from "@/lib/ledger/memory";
 import * as fx from "@/lib/airwallex/fixtures";
 
 describe("conversion lookup by request_id", () => {
-  it("a second run with an empty ledger finishes cleanly with no double conversion or payment", async () => {
+  it("a finished intent is reconciled, not replanned onto the old conversion", async () => {
     const awx = createMockClient();
     const first = await runDemo(awx, { approver: "joe" });
     expect(first.executions.every((e) => e.result === "ok")).toBe(true);
-    const second = await runDemo(awx, { approver: "joe" }); // fresh MemoryLedger, same intent
-    expect(second.executions.map((e) => [e.actionKind, e.result])).toEqual([["defer_payout", "ok"], ["fx_conversion", "already_done"], ["retry_transfer", "already_done"]]);
-    expect(second.executions.some((e) => e.result === "error")).toBe(false);
+    const quotes = awx.calls.createQuote;
+    const second = await runDemo(awx, { approver: "joe" });
+    expect(second.refusedReplan).toMatch(/did not replan or pay/);
+    expect(second.executions).toEqual([]);
+    expect(awx.calls.createQuote).toBe(quotes);
+    expect(awx.calls.createConversion).toBe(1);
+    expect(awx.calls.createTransfer).toBe(1);
+    const ledger = new MemoryLedger();
+    const actions = first.rounds.at(-1)!.proposal.actions;
+    const reconciled = await reconcileSettled(awx, "intent_inv2291", actions, ledger, "dec_reconcile", fx.T0);
+    expect(reconciled.map((e) => [e.actionKind, e.result])).toEqual([["defer_payout", "already_done"], ["correct_beneficiary", "already_done"], ["fx_conversion", "already_done"], ["retry_transfer", "already_done"]]);
     expect(awx.calls.createConversion).toBe(1);
     expect(awx.calls.createTransfer).toBe(1);
     expect(awx.conversions.size).toBe(1);
-    const fxRow = second.executions.find((e) => e.actionKind === "fx_conversion")!;
+    const fxRow = reconciled.find((e) => e.actionKind === "fx_conversion")!;
     expect(fxRow.airwallexId).toBe(first.executions.find((e) => e.actionKind === "fx_conversion")!.airwallexId);
+    expect(reconciled.find((e) => e.actionKind === "retry_transfer")!.airwallexId).toBe(first.executions.find((e) => e.actionKind === "retry_transfer")!.airwallexId);
+  });
+
+  it("does not send a second conversion when a new buy amount arrives after the supplier transfer is live", async () => {
+    const awx = createMockClient();
+    const first = await runDemo(awx, { approver: "joe" });
+    const proposal = first.rounds.at(-1)!.proposal;
+    const decision = first.ledger.decisions.find((d) => d.status === "approved")!;
+    const actions = JSON.parse(JSON.stringify(proposal.actions)) as typeof proposal.actions;
+    const fxAction = actions.find((a) => a.kind === "fx_conversion");
+    if (!fxAction || fxAction.kind !== "fx_conversion") throw new Error("missing fx");
+    fxAction.buyAmount = 40000;
+    fxAction.requestId = fxRequestId("intent_inv2291", 40000, "USD", "EUR");
+    expect(fxAction.requestId).not.toBe(first.executions.find((e) => e.actionKind === "fx_conversion")!.requestId);
+    decision.boundDigest = planDigest(actions);
+    const out = await execute(first.ledger, awx, decision, { ...proposal, actions }, fx.T0, new Set());
+    const row = out.find((e) => e.actionKind === "fx_conversion");
+    expect(row?.result).toBe("error");
+    expect((row?.response as { message?: string }).message).toMatch(/already on the provider/);
+    expect(awx.calls.createConversion).toBe(1);
+    expect(awx.settled.conversions).toBe(1);
+    expect(awx.conversions.size).toBe(1);
   });
 
   it("refuses to re-send when the prior conversion for the request_id was CANCELLED", async () => {

@@ -7,6 +7,8 @@ export class MemoryLedger {
   decisions: Decision[] = [];
   executions: Execution[] = [];
   receipts: Receipt[] = [];
+  /** Plain-language evidence lines per intent, read by the receipt arc. */
+  evidence: { intentId: string; line: string }[] = [];
   private n = 0;
   id(prefix: string) {
     return `${prefix}_${++this.n}`;
