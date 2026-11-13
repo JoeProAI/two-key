@@ -7,8 +7,9 @@ Every claim in README.md, and the command that checks it. All commands run offli
 | The $40k Northwind incident runs end to end in MOCK with no keys. | `npm ci && npm run demo` |
 | The second run is `already_done` with no second send. | `npm run demo -- rerun` |
 | Every deterministic failure case passes. | `npm run matrix` (21 pass, 0 fail) |
-| 22 test files, all green, plus lint, types and leak scan. | `npm run check` |
+| 138 tests in 26 files, all green, plus lint, types and leak scan. | `npm run check` |
 | One command reproduces the judge path. | `npm run proof` (writes `artifacts/proof/summary.md`) |
+| The judge path passes on a fresh machine from a public clone. | `docs/fresh-machine/2026-11-12-daytona/` (Daytona, Debian 13, Node 24, 2 vCPU 2 GiB: proof ok. At 1 GiB the Next build is killed for memory.) |
 | A SANDBOX corridor ran on 2026-10-27, rerun 2026-10-28. | Read `docs/ops-note.md`. Rerun: `AIRWALLEX_CLIENT_ID=... AIRWALLEX_API_KEY=... npm run proof` (SANDBOX) |
 | Each desk step maps to a named Airwallex endpoint, function and test. | `docs/AIRWALLEX-MAP.md` |
 | The receipt reads Goal, Plan, New information, Revised decision, Resulting state. | `npm run demo`; `tests/scenarios.test.ts` "labels Goal, Plan, New information, Revised decision, Resulting state on the receipt" |

@@ -1,0 +1,12 @@
+PRETTY_NAME="Debian GNU/Linux 13 (trixie)"
+NAME="Debian GNU/Linux"
+VERSION_ID="13"
+VERSION="13 (trixie)"
+Linux 6.8.0-147-generic x86_64
+node v24.22.1
+npm 11.19.1
+git git version 2.56.0
+64
+               total        used        free      shared  buff/cache   available
+Mem:          773580      147873      170265         713      466450      625707
+overlay         5.0G   24K  5.0G   1% /

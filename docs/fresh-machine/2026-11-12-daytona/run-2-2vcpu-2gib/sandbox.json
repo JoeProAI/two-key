@@ -1,0 +1,17 @@
+{
+  "started_et": "2026-11-12T22:23:18-05:00",
+  "sandbox_id": "03ef0ff6-31cf-4422-be46-c912989abdbd",
+  "snapshot": null,
+  "cpu": 2,
+  "memory_gib": 2,
+  "disk_gib": 5,
+  "region": "us",
+  "network": "registry.npmjs.org 200\ngithub.com 200\n",
+  "install_path": "online: git clone from GitHub + npm ci from registry",
+  "clone_and_ci": "f8d915a47b08b13a50428fc534ac9ac9403ca439 Two-Key submit pack: image-led desk, sandbox proof, zip, LICENSE, run docs (#8)\nnpm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.2\nnpm notice To update run: npm install -g npm@12.2.2\nnpm notice\nNPM_CI_EXIT=0\n",
+  "run": "PROOF_EXIT=0\nproof: ok. Logs in artifacts/proof/.\nEVIDENCE_EXIT=0\nDIRTY_FILES= 0\n",
+  "elapsed_s": 60,
+  "ended_et": "2026-11-12T22:24:18-05:00",
+  "deleted": true,
+  "get_after_delete": "still found"
+}
