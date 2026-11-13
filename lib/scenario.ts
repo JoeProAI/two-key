@@ -7,6 +7,7 @@ import type { Finding } from "./agents/wringer";
 import type { Decision, Proposal } from "./ledger/types";
 import { plan } from "./agents/planner";
 import { review } from "./agents/wringer";
+import type { ChatJSON } from "./agents/openrouter";
 import { approve, decide, execute } from "./agents/executor";
 import { applyAvailable, round } from "./money";
 import { canonicalRetryId } from "./requestId";
@@ -23,17 +24,18 @@ export function snapEvidence(situation: Situation): string {
 }
 
 /** Scripted demo: $40k supplier transfer failed, duplicate + out-of-order webhooks, EUR shortfall, deferred payout, one tap. */
-export async function runDemo(awx: AirwallexClient, opts: { approver?: string; now?: number; thresholdUsd?: number; ledger?: MemoryLedger; depositUsd?: number; stopOnBlock?: boolean } = {}) {
+export async function runDemo(awx: AirwallexClient, opts: { approver?: string; now?: number; thresholdUsd?: number; ledger?: MemoryLedger; depositUsd?: number; stopOnBlock?: boolean; agents?: { env?: NodeJS.ProcessEnv; chat?: ChatJSON }; deliveries?: typeof fx.demoWebhookDeliveries } = {}) {
+  const deliveries = opts.deliveries ?? fx.demoWebhookDeliveries;
   const now = opts.now ?? fx.T0;
   const ledger = opts.ledger ?? new MemoryLedger();
   const inbox = new WebhookInbox();
   const deferred = new Set<string>();
-  for (const e of fx.demoWebhookDeliveries) inbox.ingest(e);
+  for (const e of deliveries) inbox.ingest(e);
 
   const intent = { id: "intent_inv2291", title: "Pay Northwind Steel INV-2291 (USD 40,000) once", createdAt: now, status: "open" as const };
   ledger.intents.push({ ...intent });
   const original = await awx.getTransfer(fx.ORIGINAL_TRANSFER_ID); // GET /api/v1/transfers/{id}
-  const failed = fx.demoWebhookDeliveries.filter((e) => e.name === "payout.transfer.failed");
+  const failed = deliveries.filter((e) => e.name === "payout.transfer.failed");
 
   const situation: Situation = {
     intentId: intent.id, now, original,
@@ -65,10 +67,10 @@ export async function runDemo(awx: AirwallexClient, opts: { approver?: string; n
       const short = round(original.transfer_amount + situation.reserve.amount - usd, "USD");
       if (short > 0) situation.quote = await awx.createQuote({ buy_currency: "USD", sell_currency: "EUR", buy_amount: short, validity: "MIN_15" }); // POST /api/v1/fx/quotes/create
     }
-    const p = await plan(situation, r, objections);
+    const p = await plan(situation, r, objections, opts.agents ?? {});
     const proposal = { id: ledger.id("prop"), intentId: intent.id, round: r, author: "planner" as const, summary: p.summary, actions: p.actions, createdAt: now };
     ledger.proposals.push(proposal);
-    const findings = await review(situation, p.actions);
+    const findings = await review(situation, p.actions, opts.agents ?? {});
     for (const f of findings) ledger.objections.push({ id: ledger.id("obj"), proposalId: proposal.id, author: "wringer", createdAt: now, ...f });
     const decision = decide(ledger, proposal, findings, situation.approvalThresholdUsd, now);
     decision.evidenceDigest = snapEvidence(situation);

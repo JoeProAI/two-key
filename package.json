@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "demo": "tsx --conditions=react-server scripts/demo.ts",
+    "demo:agents": "tsx --conditions=react-server scripts/agents.ts",
     "matrix": "tsx --conditions=react-server scripts/matrix.ts",
     "evidence": "tsx --conditions=react-server scripts/evidence.ts",
     "live-smoke": "tsx --conditions=react-server scripts/live-smoke.ts",
