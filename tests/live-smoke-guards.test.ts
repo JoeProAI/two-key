@@ -3,6 +3,7 @@ import {
   fundingReady,
   sandboxBaseUrl,
   smokeBeneficiaryId,
+  smokeIntent,
   smokePassed,
   transferProofOk,
 } from "@/scripts/live-smoke";
@@ -48,5 +49,19 @@ describe("live smoke pass rules", () => {
     expect(() => sandboxBaseUrl("https://api.sandbox.airwallex.com.evil.example")).toThrow(/Sandbox only/);
     expect(() => sandboxBaseUrl("http://api.sandbox.airwallex.com")).toThrow(/Sandbox only/);
     expect(() => sandboxBaseUrl("https://user:secret@api.sandbox.airwallex.com")).toThrow(/Sandbox only/);
+  });
+});
+
+describe("smokeIntent", () => {
+  it("defaults to the recorded intent", () => {
+    expect(smokeIntent(undefined)).toBe("sandbox-smoke-v1");
+    expect(smokeIntent("  ")).toBe("sandbox-smoke-v1");
+  });
+  it("accepts a dated fresh intent", () => {
+    expect(smokeIntent("sandbox-smoke-2026-11-12")).toBe("sandbox-smoke-2026-11-12");
+  });
+  it("refuses odd characters", () => {
+    expect(() => smokeIntent("a b")).toThrow();
+    expect(() => smokeIntent("x".repeat(49))).toThrow();
   });
 });
