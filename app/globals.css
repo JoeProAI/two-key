@@ -950,3 +950,6 @@ button[aria-disabled="true"] { cursor: not-allowed; opacity: 0.55; transform: no
   .doc-head h1 { font-size: 3.25rem; max-width: 20ch; }
   .doc-figure { font-size: 3.5rem; }
 }
+
+/* Long ids and the 40-character git sha wrap instead of widening the page. */
+.proof p, .proof li, .cash-field p, #check li, .awx p { overflow-wrap: anywhere; }
