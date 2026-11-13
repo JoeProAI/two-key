@@ -1,0 +1,223 @@
+
+> two-key@0.1.0 proof
+> node scripts/proof.mjs
+
+
+=== npm run check (lint, typecheck, tests, build + leak scan) ===
+
+> two-key@0.1.0 check
+> npm run lint && npm run typecheck && npm run test && npm run leak-scan
+
+
+> two-key@0.1.0 lint
+> eslint .
+
+
+> two-key@0.1.0 typecheck
+> tsc --noEmit
+
+
+> two-key@0.1.0 test
+> vitest run
+
+
+ RUN  v3.2.7 /home/daytona/two-key
+
+ ✓ tests/claim-lease.test.ts (12 tests) 75ms
+ ✓ tests/wringer-hard-stop.test.ts (12 tests) 8ms
+ ✓ tests/agents-planner.test.ts (8 tests) 30ms
+ ✓ tests/beneficiary-fix.test.ts (10 tests) 72ms
+ ✓ tests/no-double-pay.test.ts (11 tests) 63ms
+ ✓ tests/conversion-lookup.test.ts (6 tests) 19ms
+ ✓ tests/desk.test.ts (5 tests) 32ms
+ ✓ tests/ledger-boundary.test.ts (4 tests) 5ms
+ ✓ tests/agents-live.test.ts (5 tests) 24ms
+ ✓ tests/desk-gate.test.ts (6 tests) 28ms
+ ✓ tests/live-client.test.ts (8 tests) 41ms
+ ✓ tests/ledger-sync.test.ts (5 tests) 15ms
+ ✓ tests/transfer-drive.test.ts (5 tests) 4ms
+ ✓ tests/scenarios.test.ts (7 tests) 726ms
+   ✓ demo CLI scenarios > every named scenario runs  711ms
+ ✓ tests/webhooks.test.ts (5 tests) 9ms
+ ✓ tests/desk-restore.test.ts (3 tests) 25ms
+ ✓ tests/key-leak.test.ts (6 tests) 10ms
+ ✓ tests/webhook-store.test.ts (4 tests) 31ms
+ ✓ tests/live-smoke-guards.test.ts (5 tests) 5ms
+ ✓ tests/receipt-pack.test.ts (1 test) 14ms
+ ✓ tests/matrix.test.ts (1 test) 28ms
+ ✓ tests/request-id.test.ts (2 tests) 5ms
+ ✓ tests/desk-order.test.ts (1 test) 66ms
+ ✓ tests/copy-rules.test.ts (2 tests) 7ms
+ ✓ tests/corridor.test.ts (2 tests) 3ms
+ ✓ tests/money.test.ts (2 tests) 3ms
+
+ Test Files  26 passed (26)
+      Tests  138 passed (138)
+   Start at  03:21:08
+   Duration  8.87s (transform 863ms, setup 0ms, collect 2.05s, tests 1.35s, environment 3ms, prepare 1.58s)
+
+
+> two-key@0.1.0 leak-scan
+> node scripts/leak-scan.mjs
+
+   ▲ Next.js 15.5.27
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 9.1s
+   Linting and checking validity of types ...
+   Collecting page data ...
+
+ ⚠ The Next.js plugin was not detected in your ESLint configuration. See https://nextjs.org/docs/app/api-reference/config/eslint#migrating-existing-config
+Killed
+node:internal/errors:986
+  const err = new Error(message);
+              ^
+
+Error: Command failed: npx next build
+    at genericNodeError (node:internal/errors:986:15)
+    at wrappedFn (node:internal/errors:540:14)
+    at checkExecSyncError (node:child_process:943:11)
+    at execSync (node:child_process:1015:15)
+    at file:///home/daytona/two-key/scripts/leak-scan.mjs:15:1
+    at ModuleJob.run (node:internal/modules/esm/module_job:561:25)
+    at async node:internal/modules/esm/loader:647:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5) {
+  status: 137,
+  signal: null,
+  output: [ null, null, null ],
+  pid: 1020,
+  stdout: null,
+  stderr: null
+}
+
+Node.js v24.22.1
+
+=== npm run demo (Northwind, MOCK) ===
+
+> two-key@0.1.0 demo
+> tsx --conditions=react-server scripts/demo.ts
+
+Scenario: main
+Mode: MOCK FIXTURE
+
+Goal: Pay Northwind Steel INV-2291 (USD 40,000) once.
+Plan: round 1. Retry USD 40000 to the supplier (2 failure notices received).
+New information: the Wringer blocked round 1 on double_payment, unstable_request_id, beneficiary_unchanged_after_mismatch, reserve_breach. Read-back: GET /api/v1/transfers/43217eec-6053-4fe6-b760-****0040 is CANCELLED (INVALID_ACCOUNT_NAME_OR_NUMBER). GET /api/v1/balances/current shows USD pending 0 and reserved 0, so the original holds no money. Supplier confirmed the legal account name "Northwind Steel Fabrication LLC" for the account ending 4417 (supplier letter, confirmed by call-back to the number already on file). The stored payee says "Northwind Steel".
+Revised decision: round 2. Correct the payee name to Northwind Steel Fabrication LLC as the supplier confirmed, retry once with a stable request_id, buy 28000 USD with EUR at the quoted rate, defer 1 low-priority payout(s). Decision: approved by joe.
+Resulting state: defer_payout ok, correct_beneficiary ok, fx_conversion ok, retry_transfer ok.
+Round 1. Planner: Retry USD 40000 to the supplier (2 failure notices received).
+  Wringer note [duplicate_webhook]: Event(s) evt_failed_01 x2 delivered more than once; counted once.
+  Wringer BLOCK [double_payment]: 2 retries proposed for one failed transfer (1 unique failure event). That pays the supplier 2 times.
+  Wringer BLOCK [unstable_request_id]: Retry uses request_id 92a1f546-3b61-991c-ce36-09a72f35bbd3, not the intent's stable id.
+  Wringer note [out_of_order_webhook]: Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}.
+  Wringer BLOCK [beneficiary_unchanged_after_mismatch]: The original failed on the payee name or account (INVALID_ACCOUNT_NAME_OR_NUMBER). This retry goes to beneficiary 9a45987e-cffc-4f0a-81d7-****0001 unchanged. It would fail the same way.
+  Wringer BLOCK [reserve_breach]: USD would end at -65000 after queued payouts, below the 10000 reserve.
+  Decision: blocked
+Round 2. Planner: Correct the payee name to Northwind Steel Fabrication LLC as the supplier confirmed, retry once with a stable request_id, buy 28000 USD with EUR at the quoted rate, defer 1 low-priority payout(s).
+  Wringer note [duplicate_webhook]: Event(s) evt_failed_01 x2 delivered more than once; counted once.
+  Wringer note [out_of_order_webhook]: Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}.
+  Decision: approved, approved by joe
+  Executed defer_payout request_id=defer:queued_marketing_7000: ok
+  Executed correct_beneficiary request_id=570f0729-3bee-e5fa-2ff4-0dd1e7bc75c8: ok (9a45987e-cffc-4f0a-81d7-****0001)
+  Executed fx_conversion request_id=e57286ec-aede-36bc-62c1-ed72e395d09d: ok (408b2589-f49f-45fa-bff5-cc3ba77a8dee)
+  Executed retry_transfer request_id=c624d34b-1b4c-cbfb-723a-e3f5d031cd83: ok (66fa6a1f-88f1-4ac2-9f07-5093bf4551cf)
+
+Balances after: [{"currency":"USD","available":10000,"pending":0,"reserved":0,"total":10000},{"currency":"EUR","available":34074.07,"pending":0,"reserved":0,"total":34074.07}]
+Transfer calls: 1 settled: 1 | conversion calls: 1 settled: 1 | quotes: 1
+This main run is independent. Its provider ids are not the replay scenario's ids.
+Receipt pack: artifacts/receipts/northwind-latest.json
+
+=== npm run demo -- rerun (second run is already_done, no second send) ===
+
+> two-key@0.1.0 demo
+> tsx --conditions=react-server scripts/demo.ts rerun
+
+Scenario: replay
+Mode: MOCK FIXTURE
+
+ISOLATED REPLAY. Pass 1 and pass 2 are this scenario only. They are not the main scenario.
+Pass 1 fx request_id=e57286ec-aede-36bc-62c1-ed72e395d09d provider=8e0c9232-070d-40ce-a63a-37b646295257 buy=28000
+Pass 1 transfer request_id=c624d34b-1b4c-cbfb-723a-e3f5d031cd83 provider=345fc6f7-4f1e-4ad4-b05f-02a772e584bf
+Pass 2 fresh process fx request_id=e57286ec-aede-36bc-62c1-ed72e395d09d provider=8e0c9232-070d-40ce-a63a-37b646295257 result=already_done buy=28000
+Pass 2 fresh process transfer request_id=c624d34b-1b4c-cbfb-723a-e3f5d031cd83 provider=345fc6f7-4f1e-4ad4-b05f-02a772e584bf result=already_done amount=40000
+Pass 2 calls transfer=0 conversion=0 quote=0 settled transfer=1 conversion=1
+Goal: Pay Northwind Steel INV-2291 (USD 40,000) once.
+Plan: round 1. Retry USD 40000 to the supplier (2 failure notices received).
+New information: the Wringer blocked round 1 on double_payment, unstable_request_id, beneficiary_unchanged_after_mismatch, reserve_breach. Read-back: GET /api/v1/transfers/43217eec-6053-4fe6-b760-****0040 is CANCELLED (INVALID_ACCOUNT_NAME_OR_NUMBER). GET /api/v1/balances/current shows USD pending 0 and reserved 0, so the original holds no money. Supplier confirmed the legal account name "Northwind Steel Fabrication LLC" for the account ending 4417 (supplier letter, confirmed by call-back to the number already on file). The stored payee says "Northwind Steel".
+Revised decision: round 2. Correct the payee name to Northwind Steel Fabrication LLC as the supplier confirmed, retry once with a stable request_id, buy 28000 USD with EUR at the quoted rate, defer 1 low-priority payout(s). Decision: approved by joe.
+Resulting state: defer_payout ok, correct_beneficiary ok, fx_conversion ok, retry_transfer ok.
+Round 1. Planner: Retry USD 40000 to the supplier (2 failure notices received).
+  Wringer note [duplicate_webhook]: Event(s) evt_failed_01 x2 delivered more than once; counted once.
+  Wringer BLOCK [double_payment]: 2 retries proposed for one failed transfer (1 unique failure event). That pays the supplier 2 times.
+  Wringer BLOCK [unstable_request_id]: Retry uses request_id 92a1f546-3b61-991c-ce36-09a72f35bbd3, not the intent's stable id.
+  Wringer note [out_of_order_webhook]: Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}.
+  Wringer BLOCK [beneficiary_unchanged_after_mismatch]: The original failed on the payee name or account (INVALID_ACCOUNT_NAME_OR_NUMBER). This retry goes to beneficiary 9a45987e-cffc-4f0a-81d7-****0001 unchanged. It would fail the same way.
+  Wringer BLOCK [reserve_breach]: USD would end at -65000 after queued payouts, below the 10000 reserve.
+  Decision: blocked
+Round 2. Planner: Correct the payee name to Northwind Steel Fabrication LLC as the supplier confirmed, retry once with a stable request_id, buy 28000 USD with EUR at the quoted rate, defer 1 low-priority payout(s).
+  Wringer note [duplicate_webhook]: Event(s) evt_failed_01 x2 delivered more than once; counted once.
+  Wringer note [out_of_order_webhook]: Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}.
+  Decision: approved, approved by joe
+  Executed defer_payout request_id=defer:queued_marketing_7000: ok
+  Executed correct_beneficiary request_id=570f0729-3bee-e5fa-2ff4-0dd1e7bc75c8: ok (9a45987e-cffc-4f0a-81d7-****0001)
+  Executed fx_conversion request_id=e57286ec-aede-36bc-62c1-ed72e395d09d: ok (8e0c9232-070d-40ce-a63a-37b646295257)
+  Executed retry_transfer request_id=c624d34b-1b4c-cbfb-723a-e3f5d031cd83: ok (345fc6f7-4f1e-4ad4-b05f-02a772e584bf)
+
+Balances after: [{"currency":"USD","available":10000,"pending":0,"reserved":0,"total":10000},{"currency":"EUR","available":34074.07,"pending":0,"reserved":0,"total":34074.07}]
+Transfer calls: 1 settled: 1 | conversion calls: 1 settled: 1 | quotes: 1
+Replay pass 2 is a fresh process. Its provider ids match pass 1 of this scenario only.
+Receipt pack: artifacts/receipts/replay.json
+
+=== npm run matrix (failure matrix) ===
+
+> two-key@0.1.0 matrix
+> tsx --conditions=react-server scripts/matrix.ts
+
+CASE | PASS | TRANSFER_CALLS | TRANSFERS_SETTLED | CONVERSION_CALLS | CONVERSIONS_SETTLED | DETAIL
+duplicate webhook | pass | 0 | 0 | 0 | 0 | unique failures 1, evt_failed_01 deliveries 2
+out-of-order webhook | pass | 0 | 0 | 0 | 0 | created_at CANCELLED, arrival PROCESSING
+FAILED then CANCELLED | pass | 1 | 1 | 1 | 1 | transfers 1, retry c624d34b-1b4c-cbfb-723a-e3f5d031cd83 ok
+stale FX quote | pass | 1 | 1 | 1 | 1 | round 1 blocked true, conversions 1
+reserve breach | pass | 0 | 0 | 0 | 0 | reserve_breach true, transfers 0
+retry to unchanged payee | pass | 0 | 0 | 0 | 0 | unchanged blocked true, corrected clears true, transfers 0
+claim lease busy | pass | 0 | 0 | 0 | 0 | second worker busy, transfers 0
+replay after success | pass | 1 | 1 | 1 | 1 | replays 1, provider 0fe44069-f08e-49e0-bade-39869afc6c41, transfers 1
+approve without desk key | pass | 0 | 0 | 0 | 0 | rejected true, transfers 0
+failed provider send | pass | 0 | 0 | 1 | 0 | fx error, transfers 0
+approval timeout | pass | 0 | 0 | 0 | 0 | status expired, transfers 0, usd 80000
+late approve | pass | 0 | 0 | 0 | 0 | status expired, late tap refused, transfers 0
+stale approval | pass | 0 | 0 | 0 | 0 | refused true, status awaiting_human
+changed plan before send | pass | 0 | 0 | 0 | 0 | refused true, transfer calls 0, settled 0
+payload mismatch after success | pass | 1 | 1 | 1 | 1 | mismatch true, conversion calls 1, settled 1
+replay after changed balances | pass | 1 | 1 | 1 | 1 | provider 5ff2d77a-3a22-4b90-9587-8c979ac28063, quotes 1
+partial then retry | pass | 2 | 1 | 1 | 1 | fx already_done provider ****9102-2894-425a-b080-2086448ce4c5, transfer calls 2 settled 1
+snapshot keeps provider id | pass | 0 | 1 | 0 | 1 | fx ccd54952-d176-4185-bc30-d719ffd7215a transfer ee57dd91-467a-403f-8ac7-a06746979a28, fresh calls 0/0
+deposit revises funding | pass | 1 | 1 | 1 | 1 | fx buy 10000, transfers 1
+partial completion | pass | 1 | 0 | 1 | 1 | fx ok, transfer error, transfer calls 1 settled 0, usd 50000
+stale finish unknown | pass | 0 | 0 | 0 | 0 | The shared ledger kept another worker's outcome for this request_id. If this worker already called the provider, that ca
+21 pass, 0 fail
+
+=== SANDBOX corridor ===
+SANDBOX skipped: AIRWALLEX_CLIENT_ID, AIRWALLEX_API_KEY not set. No provider call was made and no sandbox id was invented. Mock proof above is complete without them.
+
+# Two-Key proof pack
+
+Generated 2026-11-13T03:21:46.279Z by `npm run proof`. Git f8d915a47b08b13a50428fc534ac9ac9403ca439.
+MOCK rows use hand-written fixtures. No real money moves.
+
+| Step | Result | Note |
+|---|---|---|
+| Node 24.22.1 (needs >= 20.9) | ok |  |
+| node_modules from npm ci | ok |  |
+| npm run check (lint, typecheck, tests, build + leak scan) | FAIL | exit 1 |
+| npm run demo (Northwind, MOCK) | ok |  |
+| npm run demo -- rerun (second run is already_done, no second send) | ok |  |
+| npm run matrix (failure matrix) | ok |  |
+| SANDBOX corridor | skipped | SANDBOX skipped: AIRWALLEX_CLIENT_ID, AIRWALLEX_API_KEY not set. No provider call was made and no sandbox id was invented. Mock proof above is complete without them. |
+
+Tests: 138 passed in 26 files.
+
+Matrix: 21 pass, 0 fail.
+Sandbox corridor: skipped (keys absent).
+
+proof: FAILED. Logs in artifacts/proof/.

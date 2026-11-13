@@ -1,0 +1,129 @@
+
+> two-key@0.1.0 evidence
+> tsx --conditions=react-server scripts/evidence.ts
+
+MOCK FIXTURE evidence. No live host.
+main and replay are separate scenarios. Do not read one's provider ids as the other's.
+
+CASE | PASS | TRANSFER_CALLS | TRANSFERS_SETTLED | CONVERSION_CALLS | CONVERSIONS_SETTLED | DETAIL
+duplicate webhook | pass | 0 | 0 | 0 | 0 | unique failures 1, evt_failed_01 deliveries 2
+out-of-order webhook | pass | 0 | 0 | 0 | 0 | created_at CANCELLED, arrival PROCESSING
+FAILED then CANCELLED | pass | 1 | 1 | 1 | 1 | transfers 1, retry c624d34b-1b4c-cbfb-723a-e3f5d031cd83 ok
+stale FX quote | pass | 1 | 1 | 1 | 1 | round 1 blocked true, conversions 1
+reserve breach | pass | 0 | 0 | 0 | 0 | reserve_breach true, transfers 0
+retry to unchanged payee | pass | 0 | 0 | 0 | 0 | unchanged blocked true, corrected clears true, transfers 0
+claim lease busy | pass | 0 | 0 | 0 | 0 | second worker busy, transfers 0
+replay after success | pass | 1 | 1 | 1 | 1 | replays 1, provider 37c9723b-5512-4d0f-b67d-d208a9eed702, transfers 1
+approve without desk key | pass | 0 | 0 | 0 | 0 | rejected true, transfers 0
+failed provider send | pass | 0 | 0 | 1 | 0 | fx error, transfers 0
+approval timeout | pass | 0 | 0 | 0 | 0 | status expired, transfers 0, usd 80000
+late approve | pass | 0 | 0 | 0 | 0 | status expired, late tap refused, transfers 0
+stale approval | pass | 0 | 0 | 0 | 0 | refused true, status awaiting_human
+changed plan before send | pass | 0 | 0 | 0 | 0 | refused true, transfer calls 0, settled 0
+payload mismatch after success | pass | 1 | 1 | 1 | 1 | mismatch true, conversion calls 1, settled 1
+replay after changed balances | pass | 1 | 1 | 1 | 1 | provider 83052dd0-fefb-4c25-a0ae-5fe32b4d50db, quotes 1
+partial then retry | pass | 2 | 1 | 1 | 1 | fx already_done provider e9e5486f-78d6-42e1-9fa5-d5f133faa23f, transfer calls 2 settled 1
+snapshot keeps provider id | pass | 0 | 1 | 0 | 1 | fx bf217c49-da82-43ae-acef-00d3e3e23755 transfer 6710668d-1321-47b1-aabe-38461116f61b, fresh calls 0/0
+deposit revises funding | pass | 1 | 1 | 1 | 1 | fx buy 10000, transfers 1
+partial completion | pass | 1 | 0 | 1 | 1 | fx ok, transfer error, transfer calls 1 settled 0, usd 50000
+stale finish unknown | pass | 0 | 0 | 0 | 0 | The shared ledger kept another worker's outcome for this request_id. If this worker already called the provider, that ca
+21 pass, 0 fail
+
+--- independent scenario: main ---
+Scenario: main
+Mode: MOCK FIXTURE
+
+Goal: Pay Northwind Steel INV-2291 (USD 40,000) once.
+Plan: round 1. Retry USD 40000 to the supplier (2 failure notices received).
+New information: the Wringer blocked round 1 on double_payment, unstable_request_id, beneficiary_unchanged_after_mismatch, reserve_breach. Read-back: GET /api/v1/transfers/43217eec-6053-4fe6-b760-000000000040 is CANCELLED (INVALID_ACCOUNT_NAME_OR_NUMBER). GET /api/v1/balances/current shows USD pending 0 and reserved 0, so the original holds no money. Supplier confirmed the legal account name "Northwind Steel Fabrication LLC" for the account ending 4417 (supplier letter, confirmed by call-back to the number already on file). The stored payee says "Northwind Steel".
+Revised decision: round 2. Correct the payee name to Northwind Steel Fabrication LLC as the supplier confirmed, retry once with a stable request_id, buy 28000 USD with EUR at the quoted rate, defer 1 low-priority payout(s). Decision: approved by joe.
+Resulting state: defer_payout ok, correct_beneficiary ok, fx_conversion ok, retry_transfer ok.
+Round 1. Planner: Retry USD 40000 to the supplier (2 failure notices received).
+  Wringer note [duplicate_webhook]: Event(s) evt_failed_01 x2 delivered more than once; counted once.
+  Wringer BLOCK [double_payment]: 2 retries proposed for one failed transfer (1 unique failure event). That pays the supplier 2 times.
+  Wringer BLOCK [unstable_request_id]: Retry uses request_id 92a1f546-3b61-991c-ce36-09a72f35bbd3, not the intent's stable id.
+  Wringer note [out_of_order_webhook]: Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}.
+  Wringer BLOCK [beneficiary_unchanged_after_mismatch]: The original failed on the payee name or account (INVALID_ACCOUNT_NAME_OR_NUMBER). This retry goes to beneficiary 9a45987e-cffc-4f0a-81d7-000000000001 unchanged. It would fail the same way.
+  Wringer BLOCK [reserve_breach]: USD would end at -65000 after queued payouts, below the 10000 reserve.
+  Decision: blocked
+Round 2. Planner: Correct the payee name to Northwind Steel Fabrication LLC as the supplier confirmed, retry once with a stable request_id, buy 28000 USD with EUR at the quoted rate, defer 1 low-priority payout(s).
+  Wringer note [duplicate_webhook]: Event(s) evt_failed_01 x2 delivered more than once; counted once.
+  Wringer note [out_of_order_webhook]: Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}.
+  Decision: approved, approved by joe
+  Executed defer_payout request_id=defer:queued_marketing_7000: ok
+  Executed correct_beneficiary request_id=570f0729-3bee-e5fa-2ff4-0dd1e7bc75c8: ok (9a45987e-cffc-4f0a-81d7-000000000001)
+  Executed fx_conversion request_id=e57286ec-aede-36bc-62c1-ed72e395d09d: ok (d6ca9c04-6e4d-43bc-a9cd-6d597a03aa39)
+  Executed retry_transfer request_id=c624d34b-1b4c-cbfb-723a-e3f5d031cd83: ok (eedf2aff-006f-41a4-954d-8aa298146b2c)
+
+Balances after: [{"currency":"USD","available":10000,"pending":0,"reserved":0,"total":10000},{"currency":"EUR","available":34074.07,"pending":0,"reserved":0,"total":34074.07}]
+Transfer calls: 1 settled: 1 | conversion calls: 1 settled: 1 | quotes: 1
+This main run is independent. Its provider ids are not the replay scenario's ids.
+Receipt pack: artifacts/receipts/northwind-latest.json
+
+--- isolated scenario: replay (pass 1, then a fresh process) ---
+Scenario: replay
+Mode: MOCK FIXTURE
+
+ISOLATED REPLAY. Pass 1 and pass 2 are this scenario only. They are not the main scenario.
+Pass 1 fx request_id=e57286ec-aede-36bc-62c1-ed72e395d09d provider=cb599c94-1f21-46f9-8527-87c5fc69dd19 buy=28000
+Pass 1 transfer request_id=c624d34b-1b4c-cbfb-723a-e3f5d031cd83 provider=74dc6800-e6ba-4ae6-be18-ad3621dff686
+Pass 2 fresh process fx request_id=e57286ec-aede-36bc-62c1-ed72e395d09d provider=cb599c94-1f21-46f9-8527-87c5fc69dd19 result=already_done buy=28000
+Pass 2 fresh process transfer request_id=c624d34b-1b4c-cbfb-723a-e3f5d031cd83 provider=74dc6800-e6ba-4ae6-be18-ad3621dff686 result=already_done amount=40000
+Pass 2 calls transfer=0 conversion=0 quote=0 settled transfer=1 conversion=1
+Goal: Pay Northwind Steel INV-2291 (USD 40,000) once.
+Plan: round 1. Retry USD 40000 to the supplier (2 failure notices received).
+New information: the Wringer blocked round 1 on double_payment, unstable_request_id, beneficiary_unchanged_after_mismatch, reserve_breach. Read-back: GET /api/v1/transfers/43217eec-6053-4fe6-b760-000000000040 is CANCELLED (INVALID_ACCOUNT_NAME_OR_NUMBER). GET /api/v1/balances/current shows USD pending 0 and reserved 0, so the original holds no money. Supplier confirmed the legal account name "Northwind Steel Fabrication LLC" for the account ending 4417 (supplier letter, confirmed by call-back to the number already on file). The stored payee says "Northwind Steel".
+Revised decision: round 2. Correct the payee name to Northwind Steel Fabrication LLC as the supplier confirmed, retry once with a stable request_id, buy 28000 USD with EUR at the quoted rate, defer 1 low-priority payout(s). Decision: approved by joe.
+Resulting state: defer_payout ok, correct_beneficiary ok, fx_conversion ok, retry_transfer ok.
+Round 1. Planner: Retry USD 40000 to the supplier (2 failure notices received).
+  Wringer note [duplicate_webhook]: Event(s) evt_failed_01 x2 delivered more than once; counted once.
+  Wringer BLOCK [double_payment]: 2 retries proposed for one failed transfer (1 unique failure event). That pays the supplier 2 times.
+  Wringer BLOCK [unstable_request_id]: Retry uses request_id 92a1f546-3b61-991c-ce36-09a72f35bbd3, not the intent's stable id.
+  Wringer note [out_of_order_webhook]: Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}.
+  Wringer BLOCK [beneficiary_unchanged_after_mismatch]: The original failed on the payee name or account (INVALID_ACCOUNT_NAME_OR_NUMBER). This retry goes to beneficiary 9a45987e-cffc-4f0a-81d7-000000000001 unchanged. It would fail the same way.
+  Wringer BLOCK [reserve_breach]: USD would end at -65000 after queued payouts, below the 10000 reserve.
+  Decision: blocked
+Round 2. Planner: Correct the payee name to Northwind Steel Fabrication LLC as the supplier confirmed, retry once with a stable request_id, buy 28000 USD with EUR at the quoted rate, defer 1 low-priority payout(s).
+  Wringer note [duplicate_webhook]: Event(s) evt_failed_01 x2 delivered more than once; counted once.
+  Wringer note [out_of_order_webhook]: Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}.
+  Decision: approved, approved by joe
+  Executed defer_payout request_id=defer:queued_marketing_7000: ok
+  Executed correct_beneficiary request_id=570f0729-3bee-e5fa-2ff4-0dd1e7bc75c8: ok (9a45987e-cffc-4f0a-81d7-000000000001)
+  Executed fx_conversion request_id=e57286ec-aede-36bc-62c1-ed72e395d09d: ok (cb599c94-1f21-46f9-8527-87c5fc69dd19)
+  Executed retry_transfer request_id=c624d34b-1b4c-cbfb-723a-e3f5d031cd83: ok (74dc6800-e6ba-4ae6-be18-ad3621dff686)
+
+Balances after: [{"currency":"USD","available":10000,"pending":0,"reserved":0,"total":10000},{"currency":"EUR","available":34074.07,"pending":0,"reserved":0,"total":34074.07}]
+Transfer calls: 1 settled: 1 | conversion calls: 1 settled: 1 | quotes: 1
+Replay pass 2 is a fresh process. Its provider ids match pass 1 of this scenario only.
+Receipt pack: artifacts/receipts/replay.json
+
+--- independent scenario: deposit ---
+Scenario: deposit
+Mode: MOCK FIXTURE
+
+Goal: Pay Northwind Steel INV-2291 (USD 40,000) once.
+Plan: round 1. Retry USD 40000 to the supplier (2 failure notices received).
+New information: the Wringer blocked round 1 on double_payment, unstable_request_id, beneficiary_unchanged_after_mismatch, reserve_breach. Read-back: GET /api/v1/transfers/43217eec-6053-4fe6-b760-000000000040 is CANCELLED (INVALID_ACCOUNT_NAME_OR_NUMBER). GET /api/v1/balances/current shows USD pending 0 and reserved 0, so the original holds no money. Supplier confirmed the legal account name "Northwind Steel Fabrication LLC" for the account ending 4417 (supplier letter, confirmed by call-back to the number already on file). The stored payee says "Northwind Steel". a USD 18000 deposit arrived after round 1. The next plan uses the new balance. The blocked plan was not approved.
+Revised decision: round 2. Correct the payee name to Northwind Steel Fabrication LLC as the supplier confirmed, retry once with a stable request_id, buy 10000 USD with EUR at the quoted rate, defer 1 low-priority payout(s). Decision: approved by joe.
+Resulting state: defer_payout ok, correct_beneficiary ok, fx_conversion ok, retry_transfer ok.
+Round 1. Planner: Retry USD 40000 to the supplier (2 failure notices received).
+  Wringer note [duplicate_webhook]: Event(s) evt_failed_01 x2 delivered more than once; counted once.
+  Wringer BLOCK [double_payment]: 2 retries proposed for one failed transfer (1 unique failure event). That pays the supplier 2 times.
+  Wringer BLOCK [unstable_request_id]: Retry uses request_id 92a1f546-3b61-991c-ce36-09a72f35bbd3, not the intent's stable id.
+  Wringer note [out_of_order_webhook]: Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}.
+  Wringer BLOCK [beneficiary_unchanged_after_mismatch]: The original failed on the payee name or account (INVALID_ACCOUNT_NAME_OR_NUMBER). This retry goes to beneficiary 9a45987e-cffc-4f0a-81d7-000000000001 unchanged. It would fail the same way.
+  Wringer BLOCK [reserve_breach]: USD would end at -65000 after queued payouts, below the 10000 reserve.
+  Decision: blocked
+  Evidence: a USD 18000 deposit arrived after round 1. The next plan uses the new balance. The blocked plan was not approved.
+Round 2. Planner: Correct the payee name to Northwind Steel Fabrication LLC as the supplier confirmed, retry once with a stable request_id, buy 10000 USD with EUR at the quoted rate, defer 1 low-priority payout(s).
+  Wringer note [duplicate_webhook]: Event(s) evt_failed_01 x2 delivered more than once; counted once.
+  Wringer note [out_of_order_webhook]: Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}.
+  Decision: approved, approved by joe
+  Executed defer_payout request_id=defer:queued_marketing_7000: ok
+  Executed correct_beneficiary request_id=570f0729-3bee-e5fa-2ff4-0dd1e7bc75c8: ok (9a45987e-cffc-4f0a-81d7-000000000001)
+  Executed fx_conversion request_id=11872280-b7eb-0f0c-a139-589310f5fda2: ok (b36695e7-4a65-4f34-87e3-ba5529967214)
+  Executed retry_transfer request_id=c624d34b-1b4c-cbfb-723a-e3f5d031cd83: ok (ce843147-7d60-4f92-999d-26e65c54a8d1)
+
+Balances after: [{"currency":"USD","available":10000,"pending":0,"reserved":0,"total":10000},{"currency":"EUR","available":50740.74,"pending":0,"reserved":0,"total":50740.74}]
+Transfer calls: 1 settled: 1 | conversion calls: 1 settled: 1 | quotes: 1
+Receipt pack: artifacts/receipts/deposit.json

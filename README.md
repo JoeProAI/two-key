@@ -36,7 +36,7 @@ Skeptical? `docs/RED-TEAM.md` answers 20+ attacks with the test that proves each
 
 ## Judges in 90 seconds
 
-No keys. No site login. Node 20.9 or newer (tested on Node 22).
+No keys. No site login. Node 20.9 or newer (tested on Node 22 and 24) and at least 2 GiB of RAM for the Next.js build. Fresh-machine run on Daytona: [docs/fresh-machine/2026-11-12-daytona](docs/fresh-machine/2026-11-12-daytona/README.md).
 
 ```bash
 npm ci
