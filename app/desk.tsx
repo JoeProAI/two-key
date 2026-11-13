@@ -19,6 +19,7 @@ export function Desk({ view, demo }: { view: DeskView; demo?: ReactNode }) {
     : stateLine(view);
   const latest = view.rounds.at(-1);
   const privateDesk = !view.publicFixture;
+  const lead = openingLead(view, state, cue.text);
   return (
     <DeskFrame>
       <div className={demo ? "instrument has-demo" : "instrument"}>
@@ -45,10 +46,8 @@ export function Desk({ view, demo }: { view: DeskView; demo?: ReactNode }) {
         <p className="next" id="next-step">
           <a href={cue.href}>{cue.text}</a>
         </p>
-        <p className="lead">{state.detail}</p>
-        <p className="binding">
-          {latest ? `Bound to plan round ${latest.round}. Digest ${short(latest.boundDigest)}` : "No plan is filed. Nothing is bound."}
-        </p>
+        {lead ? <p className="lead">{lead}</p> : null}
+        {latest ? <p className="binding">{`Bound to plan round ${latest.round}. Digest ${short(latest.boundDigest)}`}</p> : null}
       </section>
       <HeroPlate />
       <nav className="rail" aria-label="Bound decision">
@@ -326,6 +325,22 @@ function Term({ label, value, unknown, copy }: { label: string; value: string; u
       <dd>{copy ? <CopyId id={value} /> : value}</dd>
     </div>
   );
+}
+
+/** One statement per fact in the opening: drop lead sentences the next-step button already says.
+ *  Before a plan exists, the lead states the incident instead of repeating "nothing sent". */
+function openingLead(view: DeskView, state: { word: string; detail: string }, cue: string): string {
+  if (!view.locked && !view.error && !view.rounds.length && view.phase !== "paid" && view.phase !== "failed") {
+    const failure = view.failure ? ` ${view.failure.replace(/\.?$/, ".")}` : "";
+    return `The original transfer was ${view.status.toLowerCase()}.${failure}`;
+  }
+  const key = (line: string) => line.toLowerCase().replace(/\b(is|was|has been)\b/g, "").replace(/\W+/g, "");
+  const said = new Set(sentences(cue).map(key));
+  return sentences(state.detail).filter((line) => !said.has(key(line))).join(" ");
+}
+
+function sentences(text: string): string[] {
+  return text.split(/(?<=\.)\s+/).map((line) => line.trim()).filter(Boolean);
 }
 
 function short(digest: string | null | undefined): string {
