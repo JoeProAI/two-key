@@ -28,6 +28,8 @@ Recorded sandbox run, 2026-10-27. The public desk runs the same corridor against
 
 Those ids came from `scripts/live-smoke.ts`, not from this desk build. Details in `docs/ops-note.md`, the endpoint to code to test map in `docs/AIRWALLEX-MAP.md`. Rerun with your own sandbox keys: `AIRWALLEX_CLIENT_ID=... AIRWALLEX_API_KEY=... npm run proof`.
 
+Skeptical? `docs/RED-TEAM.md` answers 20+ attacks with the test that proves each, and `docs/CLAIMS.md` maps every claim here to a command.
+
 ## Judges in 90 seconds
 
 No keys. No site login. Node 20.9 or newer (tested on Node 22).
@@ -56,6 +58,7 @@ npm run demo -- deposit       # a USD 18000 deposit after the block shrinks the 
 npm run demo -- stale-quote    # 1-minute quote goes stale, Wringer blocks, planner re-quotes
 npm run demo -- approval       # $25k payout waits 90 min for the tap, then pays once
 npm run demo -- approval-timeout  # same payout, no tap within 4 hours: expires, nothing moves
+npm run demo:agents            # planner + Wringer through OpenRouter (needs OPENROUTER_API_KEY and both model names, else exits 2). Transcript in artifacts/agent-runs/
 npm run matrix                 # deterministic failure matrix, exits 1 on any fail
 npm run check                  # lint + typecheck + tests + build-and-scan for leaked keys
 npm run proof                  # one-command proof pack, writes artifacts/proof/ (add -- --skip-check for a quick pass)

@@ -42,9 +42,21 @@ A repeated key is the same action. A different buy amount is a different key. Th
 
 Mode line: `MOCK FIXTURE`. This run is independent of replay.
 
+The receipt opens with the builder-guide arc:
+
+```text
+Goal: Pay Northwind Steel INV-2291 (USD 40,000) once.
+Plan: round 1. Retry USD 40000 to the supplier (2 failure notices received).
+New information: the Wringer blocked round 1 on double_payment, unstable_request_id, reserve_breach.
+Revised decision: round 2. Retry once with a stable request_id, buy 28000 USD with EUR at the quoted rate, defer 1 low-priority payout(s). Decision: approved by joe.
+Resulting state: defer_payout ok, fx_conversion ok, retry_transfer ok.
+```
+
 Round 1 blocks: `double_payment`, `unstable_request_id`, `reserve_breach`. Notes: `duplicate_webhook` (`evt_failed_01` x2, counted once) and `out_of_order_webhook` (arrival PROCESSING, created_at CANCELLED).
 
 Round 2: one stable retry, buy 28000 USD with EUR, defer the 7000 retainer. Decision `approved, approved by joe`.
+
+Skeptical? `docs/RED-TEAM.md` lists the attacks and the test for each. `docs/CLAIMS.md` maps every README claim to a command.
 
 Executions: defer ok, FX ok (`e57286ec-aede-36bc-62c1-ed72e395d09d`), retry ok (`c624d34b-1b4c-cbfb-723a-e3f5d031cd83`).
 
