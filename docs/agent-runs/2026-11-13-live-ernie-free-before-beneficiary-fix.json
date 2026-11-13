@@ -1,0 +1,277 @@
+{
+  "schema": "two-key.agent-run.v1",
+  "at": "2026-11-13T02:18:37.412Z",
+  "provider": "MOCK Airwallex fixture. No Airwallex call. No money moved.",
+  "models": {
+    "planner": "baidu/ernie-5.5-flash-preview:free",
+    "wringer": "baidu/ernie-5.5-flash-preview:free"
+  },
+  "rule": "Hard Wringer checks are code. Model objections can add, never clear. The planner model may only replace the summary text.",
+  "calls": [
+    {
+      "role": "planner",
+      "model": "baidu/ernie-5.5-flash-preview:free",
+      "served": "baidu/ernie-5.5-flash-preview:free",
+      "ok": true,
+      "parsed": true,
+      "raw": "{\"summary\":\"INV-2291 ($40,000 USD to Northwind Steel) is authoritatively CANCELLED, not in-flight. The by-created_at status is CANCELLED, and the single unique failure event (delivered twice) is INVALID_ACCOUNT_NAME_OR_NUMBER — a deterministic beneficiary-name mismatch that an identical retry will reproduce; the PROCESSING status by arrival is stale/duplicate and should be ignored. Separately, $40k exceeds usable USD (22,000 available − 10,000 reserve = 12,000). Recommendation: (1) retry_transfer — HOLD/BLOCK until the beneficiary account name/number is corrected at source and funding is confirmed; resubmitting now will fail again and is underfunded. (2) fx_conversion — DEFER; converting EUR→USD now wastes spread on a payment that can't clear. Once the beneficiary is fixed you'll need ~$28k USD (≈24–26k EUR, within the 60,000 EUR balance) to cover the shortfall while keeping the 10,000 USD reserve intact. (3) defer_payout — APPROVE; the $7k marketing retainer is low-priority and due in 9 days, so deferring preserves USD optionality at low risk and is reversible. Note: both the $40k retry and any ≥$10k FX conversion sit above the $10k approval threshold and require two-key sign-off.\",\"moves\":[{\"move\":\"retry_transfer\",\"decision\":\"hold\",\"comment\":\"Root cause INVALID_ACCOUNT_NAME_OR_NUMBER (beneficiary name mismatch) is deterministic — retrying to the same beneficiary (9a45987e) will fail identically. Also underfunded: $40k > 12k usable USD (22k available − 10k reserve). Do not resubmit until (a) the beneficiary account name/number is corrected at source and (b) funding is secured. Treat as CANCELLED; ignore the stale PROCESSING (duplicate webhook, 1 unique failure, 2 deliveries).\"},{\"move\":\"fx_conversion\",\"decision\":\"defer\",\"comment\":\"Premature. Funding a blocked / again-failing retry wastes FX spread and ties up EUR for a payment that won't clear. Hold until the beneficiary is corrected; then size the conversion to ~$28k USD worth (≈24–26k EUR, well within the 60k EUR balance) to cover the shortfall after the 10k USD reserve is preserved.\"},{\"move\":\"defer_payout\",\"decision\":\"approve\",\"comment\":\"Low risk. The $7k marketing retainer is low priority and not due for 9 days; deferring preserves USD liquidity/optionality for INV-2291 with ample time to re-fund via FX. Reversible.\"}]}"
+    },
+    {
+      "role": "wringer",
+      "model": "baidu/ernie-5.5-flash-preview:free",
+      "served": "baidu/ernie-5.5-flash-preview:free",
+      "ok": true,
+      "parsed": true,
+      "raw": "{\"objections\":[{\"check\":\"single_retry_still_unfunded\",\"severity\":\"block\",\"detail\":\"USD available is 22,000. Even a single 40,000 retry is 18,000 short before the reserve or the 7,000 queued payout. Making the EUR balance spendable would need a new FX conversion that neither action asks for and that the 60,000 EUR balance was not approved for.\"},{\"check\":\"zero_payment_confirmed\",\"severity\":\"block\",\"detail\":\"The event says 'failed', but no balance, ledger entry or transfer GET confirms the original was rejected with zero debit or zero settled amount. With arrival order saying PROCESSING, the ledger could hold a captured or partial debit that would later reverse into the same account. A retry could pay twice while appearing to debit once. GET the original first and retry only if the ledger shows a terminal failed or reversed state with 0 settled.\"},{\"check\":\"unchanged_beneficiary_details\",\"severity\":\"block\",\"detail\":\"The failure reason is INVALID_ACCOUNT_NAME_OR_NUMBER. Both actions send to the same beneficiaryId with no name, account number or confirmation-of-payee re-verification. The same mismatch will reject a retry, and repeated mismatches risk beneficiary flags or holds. Require corrected, verified payee details first.\"},{\"check\":\"future_dated_original\",\"severity\":\"block\",\"detail\":\"original.created_at 2026-11-02T13:00Z is about 23 h after now (2026-11-01T14:00Z). The cancelled state rests on this timestamp, which is either skewed or fabricated, so the existing GET on the original must also confirm it exists and belongs to this account.\"},{\"check\":\"original_idempotency_key_reused\",\"severity\":\"block\",\"detail\":\"legacy-erp-req-40000 belongs to the cancelled attempt. c624d34b should be minted fresh at submit time, after the source system's request id is known to be new. If the ERP replays 40000, the API may return the original transfer instead of a new one, giving a silent no-op.\"},{\"check\":\"fx_hedge_exposure\",\"severity\":\"note\",\"detail\":\"USD free cash after either retry cannot cover the 7,000 USD payout due in 9 days, and EUR idle cash cannot cover it unless converted. That leaves a 9-day FX exposure the plan does not address.\"}]}"
+    },
+    {
+      "role": "planner",
+      "model": "baidu/ernie-5.5-flash-preview:free",
+      "served": "baidu/ernie-5.5-flash-preview:free",
+      "ok": true,
+      "parsed": true,
+      "raw": "{\n  \"summary\": \"REVIEW (one key). Original transfer ...040 for INV-2291 is CANCELLED with failure INVALID_ACCOUNT_NAME_OR_NUMBER (beneficiary account name mismatch) — this is a DATA defect, not a funding shortfall. Webhook reconciliation: statusByCreatedAt=CANCELLED is authoritative; statusByArrival=PROCESSING is stale/in-flight; failedDeliveries=2 but uniqueFailedEvents=1 (evt_failed_01 delivered twice = at-least-once duplicate), so treat as ONE failure and do not double-count. No success/settlement event exists, so zero_payment_confirmed=true — nothing was paid. Per objection:\\n- double_payment: CLEARED only if the retry uses a NEW request_id; original is cancelled and unpaid, so a retry is not a duplicate.\\n- original_idempotency_key_reused / unstable_request_id: BLOCKER for Code — retry MUST NOT reuse 'legacy-erp-req-40000'; it needs a fresh, stable idempotency key. I cannot set request_ids; flagging for approver.\\n- unchanged_beneficiary_details: HARD BLOCKER. A retry with unchanged beneficiary name/number will fail again. Hold retry_transfer; do not release until beneficiary account name/number is corrected.\\n- single_retry_still_unfunded: tied to the above — a blind retry delivers nothing; also funding has ZERO buffer (see reserve).\\n- reserve_breach / funding: USD available 22000, reserve 10000 → 12000 spendable, short of the 40000 retry. fx_conversion (sell 25925.93 EUR → buy 28000 USD @1.08) lifts USD to 50000; after the 40000 retry USD = 10000 = reserve exactly (no cushion for fees/rounding). queued_marketing_7000 (7000, low, due in 9 days) MUST be deferred, else USD drops to 3000 and breaches the 10000 reserve — defer_payout APPROVED.\\n- future_dated_original: NOT APPLICABLE — created_at 13:00 is ~1h before now (14:00); not future-dated.\\n- quote validity: valid 14:00–14:15 (MIN_15), now=14:00. fx must execute promptly; if the retry is held past 14:15 for beneficiary correction, the quote lapses and must be refreshed. Order: fx settles BEFORE retry.\\nDECISION: defer_payout = APPROVE. fx_conversion = APPROVE (within quote window). retry_transfer = CONDITIONAL/BLOCKED pending (1) beneficiary name/number corrected, (2) new request_id, (3) fx settled; note zero funding buffer and that retry 40000 and fx 28000 both exceed approvalThresholdUsd 10000 (two-key required).\",\n  \"moves\": []\n}"
+    },
+    {
+      "role": "wringer",
+      "model": "baidu/ernie-5.5-flash-preview:free",
+      "served": "baidu/ernie-5.5-flash-preview:free",
+      "ok": true,
+      "parsed": true,
+      "raw": "{\"objections\":[{\"check\":\"approval_required\",\"severity\":\"block\",\"detail\":\"retry_transfer 40,000 USD exceeds approvalThresholdUsd 10,000; fx_conversion 28,000 USD also exceeds it if the threshold applies to FX. No approval reference is present.\"},{\"check\":\"retry_cancelled_transfer\",\"severity\":\"block\",\"detail\":\"Original transfer status is CANCELLED, not FAILED; retry_transfer may be disallowed for a cancelled transfer.\"},{\"check\":\"beneficiary_not_fixed\",\"severity\":\"block\",\"detail\":\"Original failed with INVALID_ACCOUNT_NAME_OR_NUMBER and retry uses the same beneficiaryId without evidence the account name/number was corrected; likely to fail again.\"},{\"check\":\"fx_settlement_dependency\",\"severity\":\"block\",\"detail\":\"retry_transfer 40,000 USD exceeds current USD available 22,000; it depends on fx_conversion settling immediately before the retry. No settlement timing is given, so if FX settles later the retry fails.\"},{\"check\":\"liquidity_after_actions\",\"severity\":\"block\",\"detail\":\"After fx_conversion, USD available is 50,000; after retry_transfer 40,000, only 10,000 remains, which is the USD reserve. The deferred 7,000 USD payout cannot be funded without breaching the 10,000 reserve.\"},{\"check\":\"deferral_condition_invalid\",\"severity\":\"block\",\"detail\":\"Deferring queued payout until 'after supplier settles' is not time-bound and depends on the same retry transfer that is likely to fail; the payout due in 9 days may be deferred indefinitely or past due.\"}]}"
+    },
+    {
+      "role": "planner",
+      "model": "baidu/ernie-5.5-flash-preview:free",
+      "served": "baidu/ernie-5.5-flash-preview:free",
+      "ok": true,
+      "parsed": true,
+      "raw": "{\n  \"summary\": \"Round 3 review — intent_inv2291. Net verdict: do NOT execute retry_transfer this round; hold for beneficiary correction and approval. The companion moves are premature or invalid while the retry is blocked. I am only commenting; I have not altered, added, removed, or renumbered the filed moves (retry_transfer, fx_conversion, defer_payout).\\n\\nBy objection:\\n(1) retry_cancelled_transfer + beneficiary_not_fixed — HARD BLOCKER. Original 43217eec…040 is CANCELLED per created-at status (authoritative). Failure = INVALID_ACCOUNT_NAME_OR_NUMBER (beneficiary 9a45987e…001 name mismatch). No beneficiary fix is present this round, so a retry would fail identically. The webhook's PROCESSING-by-arrival / sawFailedEvent is a redelivered duplicate (evt_failed_01: 2 deliveries, 1 unique event), not a new state — treat as a single failure and do not act on it. Hold retry until the beneficiary is corrected.\\n(2) approval_required — Confirmed. retry_transfer is $40,000 USD > $10,000 threshold; needs dual approval before any execution even after the beneficiary is fixed. The FX notional (buy 28,000 USD) should also be routed for approval review.\\n(3) fx_settlement_dependency — quote cc3aa77c… valid only 14:00–14:15Z; now = 14:00Z (15-minute window). Retry funding depends on this FX settling inside the window. Since the retry is blocked anyway, executing now would sell 25,925.93 EUR for 28,000 USD with no immediate use and lapse/FX risk — recommend not firing fx_conversion until the retry is cleared and approved; a fresh quote will be required.\\n(4) liquidity_after_actions — Post-FX USD = 22,000 + 28,000 = 50,000; a $40,000 retry leaves exactly $10,000 = the reserve, with zero headroom. The queued $7,000 marketing payout (due in 9 days) and any fees cannot be covered without breaching reserve. EUR post-FX = 34,074.07. The plan is not simultaneously fundable.\\n(5) deferral_condition_invalid — defer_payout targets the $7,000 low-priority marketing payout due in 9 days. Deferring a not-yet-due, low-priority item frees no current liquidity, does not meet a valid deferral condition, and does not address the beneficiary block. Deferral is not justified.\\n\\nRecommendation: block retry_transfer (beneficiary not fixed + approval required); do not execute fx_conversion until the retry is cleared and approved; do not defer the marketing payout. Re-plan after the beneficiary account name/number is corrected.\",\n  \"moves\": []\n}"
+    },
+    {
+      "role": "wringer",
+      "model": "baidu/ernie-5.5-flash-preview:free",
+      "served": "baidu/ernie-5.5-flash-preview:free",
+      "ok": true,
+      "parsed": true,
+      "raw": "{\n  \"objections\": [\n    {\n      \"check\": \"retry_transfer_uses_unremediated_beneficiary\",\n      \"severity\": \"block\",\n      \"detail\": \"The original transfer failed with INVALID_ACCOUNT_NAME_OR_NUMBER. The retry uses the same beneficiaryId and provides no corrected account name/number or beneficiary verification, so it is likely to fail again.\"\n    },\n    {\n      \"check\": \"retry_from_cancelled_transfer\",\n      \"severity\": \"block\",\n      \"detail\": \"The original transfer status is CANCELLED. A retry from a cancelled transfer should not proceed without an explicit policy path or a new corrected transfer.\"\n    },\n    {\n      \"check\": \"reserve_not_accounted_in_balances\",\n      \"severity\": \"block\",\n      \"detail\": \"A separate USD reserve of 10,000 exists while balances show reserved_amount 0. The reserve must be held or deducted before allocating USD for the retry.\"\n    },\n    {\n      \"check\": \"usd_liquidity_shortfall_with_queued_payout\",\n      \"severity\": \"block\",\n      \"detail\": \"After the 28,000 USD FX purchase, available USD is 50,000. The 10,000 USD reserve plus the 40,000 USD retry consumes the full amount; if queued_marketing_7000 remains committed, total required USD is 57,000, creating a 7,000 USD shortfall.\"\n    },\n    {\n      \"check\": \"approval_threshold_not_satisfied_for_retry\",\n      \"severity\": \"block\",\n      \"detail\": \"The retry transfer is 40,000 USD, above the 10,000 USD approval threshold, and no approval reference is present in the situation.\"\n    },\n    {\n      \"check\": \"deferral_until_is_not_a_concrete_time\",\n      \"severity\": \"note\",\n      \"detail\": \"The deferral until condition is 'after supplier settles', not a date/time. It cannot be scheduled or enforced reliably and may leave the 7,000 USD payout overdue.\"\n    },\n    {\n      \"check\": \"fx_quote_expiry_execution_risk\",\n      \"severity\": \"note\",\n      \"detail\": \"The quote expires at 2026-11-02T14:15:00Z and now is 2026-11-02T14:00:00Z. The FX conversion must execute before expiry; otherwise the retry lacks the 28,000 USD purchase.\"\n    },\n    {\n      \"check\": \"retry_depends_on_fx_settlement\",\n      \"severity\": \"note\",\n      \"detail\": \"The retry depends on funds from the FX conversion. Ensure the FX is filled/settled or the funds are atomically reserved before the retry is submitted.\"\n    }\n  ]\n}"
+    }
+  ],
+  "rounds": [
+    {
+      "round": 1,
+      "summary": "INV-2291 ($40,000 USD to Northwind Steel) is authoritatively CANCELLED, not in-flight. The by-created_at status is CANCELLED, and the single unique failure event (delivered twice) is INVALID_ACCOUNT_NAME_OR_NUMBER — a deterministic beneficiary-name mismatch that an identical retry will reproduce; the PROCESSING status by arrival is stale/duplicate and should be ignored. Separately, $40k exceeds...",
+      "actions": [
+        "retry_transfer",
+        "retry_transfer"
+      ],
+      "findings": [
+        {
+          "check": "duplicate_webhook",
+          "severity": "note",
+          "source": "code",
+          "detail": "Event(s) evt_failed_01 x2 delivered more than once; counted once."
+        },
+        {
+          "check": "double_payment",
+          "severity": "block",
+          "source": "code",
+          "detail": "2 retries proposed for one failed transfer (1 unique failure event). That pays the supplier 2 times."
+        },
+        {
+          "check": "unstable_request_id",
+          "severity": "block",
+          "source": "code",
+          "detail": "Retry uses request_id 92a1f546-3b61-991c-ce36-09a72f35bbd3, not the intent's stable id."
+        },
+        {
+          "check": "out_of_order_webhook",
+          "severity": "note",
+          "source": "code",
+          "detail": "Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}."
+        },
+        {
+          "check": "reserve_breach",
+          "severity": "block",
+          "source": "code",
+          "detail": "USD would end at -65000 after queued payouts, below the 10000 reserve."
+        },
+        {
+          "check": "single_retry_still_unfunded",
+          "severity": "block",
+          "source": "model",
+          "detail": "USD available is 22,000. Even a single 40,000 retry is 18,000 short before the reserve or the 7,000 queued payout. Making the EUR balance spendable would need a new FX conversion that neither action asks for and that the 60,000 EUR balance was not approved for."
+        },
+        {
+          "check": "zero_payment_confirmed",
+          "severity": "block",
+          "source": "model",
+          "detail": "The event says 'failed', but no balance, ledger entry or transfer GET confirms the original was rejected with zero debit or zero settled amount. With arrival order saying PROCESSING, the ledger could hold a captured or partial debit that would later reverse into the same account. A retry could pay twice while appearing to debit once. GET the original first and retry only if the ledger shows a terminal failed or reversed state with 0 settled."
+        },
+        {
+          "check": "unchanged_beneficiary_details",
+          "severity": "block",
+          "source": "model",
+          "detail": "The failure reason is INVALID_ACCOUNT_NAME_OR_NUMBER. Both actions send to the same beneficiaryId with no name, account number or confirmation-of-payee re-verification. The same mismatch will reject a retry, and repeated mismatches risk beneficiary flags or holds. Require corrected, verified payee details first."
+        },
+        {
+          "check": "future_dated_original",
+          "severity": "block",
+          "source": "model",
+          "detail": "original.created_at 2026-11-02T13:00Z is about 23 h after now (2026-11-01T14:00Z). The cancelled state rests on this timestamp, which is either skewed or fabricated, so the existing GET on the original must also confirm it exists and belongs to this account."
+        },
+        {
+          "check": "original_idempotency_key_reused",
+          "severity": "block",
+          "source": "model",
+          "detail": "legacy-erp-req-40000 belongs to the cancelled attempt. c624d34b should be minted fresh at submit time, after the source system's request id is known to be new. If the ERP replays 40000, the API may return the original transfer instead of a new one, giving a silent no-op."
+        },
+        {
+          "check": "fx_hedge_exposure",
+          "severity": "note",
+          "source": "model",
+          "detail": "USD free cash after either retry cannot cover the 7,000 USD payout due in 9 days, and EUR idle cash cannot cover it unless converted. That leaves a 9-day FX exposure the plan does not address."
+        }
+      ],
+      "decision": "blocked"
+    },
+    {
+      "round": 2,
+      "summary": "REVIEW (one key). Original transfer ...040 for INV-2291 is CANCELLED with failure INVALID_ACCOUNT_NAME_OR_NUMBER (beneficiary account name mismatch) — this is a DATA defect, not a funding shortfall. Webhook reconciliation: statusByCreatedAt=CANCELLED is authoritative; statusByArrival=PROCESSING is stale/in-flight; failedDeliveries=2 but uniqueFailedEvents=1 (evt_failed_01 delivered twice = at-l...",
+      "actions": [
+        "fx_conversion",
+        "retry_transfer",
+        "defer_payout"
+      ],
+      "findings": [
+        {
+          "check": "duplicate_webhook",
+          "severity": "note",
+          "source": "code",
+          "detail": "Event(s) evt_failed_01 x2 delivered more than once; counted once."
+        },
+        {
+          "check": "out_of_order_webhook",
+          "severity": "note",
+          "source": "code",
+          "detail": "Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}."
+        },
+        {
+          "check": "approval_required",
+          "severity": "block",
+          "source": "model",
+          "detail": "retry_transfer 40,000 USD exceeds approvalThresholdUsd 10,000; fx_conversion 28,000 USD also exceeds it if the threshold applies to FX. No approval reference is present."
+        },
+        {
+          "check": "retry_cancelled_transfer",
+          "severity": "block",
+          "source": "model",
+          "detail": "Original transfer status is CANCELLED, not FAILED; retry_transfer may be disallowed for a cancelled transfer."
+        },
+        {
+          "check": "beneficiary_not_fixed",
+          "severity": "block",
+          "source": "model",
+          "detail": "Original failed with INVALID_ACCOUNT_NAME_OR_NUMBER and retry uses the same beneficiaryId without evidence the account name/number was corrected; likely to fail again."
+        },
+        {
+          "check": "fx_settlement_dependency",
+          "severity": "block",
+          "source": "model",
+          "detail": "retry_transfer 40,000 USD exceeds current USD available 22,000; it depends on fx_conversion settling immediately before the retry. No settlement timing is given, so if FX settles later the retry fails."
+        },
+        {
+          "check": "liquidity_after_actions",
+          "severity": "block",
+          "source": "model",
+          "detail": "After fx_conversion, USD available is 50,000; after retry_transfer 40,000, only 10,000 remains, which is the USD reserve. The deferred 7,000 USD payout cannot be funded without breaching the 10,000 reserve."
+        },
+        {
+          "check": "deferral_condition_invalid",
+          "severity": "block",
+          "source": "model",
+          "detail": "Deferring queued payout until 'after supplier settles' is not time-bound and depends on the same retry transfer that is likely to fail; the payout due in 9 days may be deferred indefinitely or past due."
+        }
+      ],
+      "decision": "blocked"
+    },
+    {
+      "round": 3,
+      "summary": "Round 3 review — intent_inv2291. Net verdict: do NOT execute retry_transfer this round; hold for beneficiary correction and approval. The companion moves are premature or invalid while the retry is blocked. I am only commenting; I have not altered, added, removed, or renumbered the filed moves (retry_transfer, fx_conversion, defer_payout). By objection: (1) retry_cancelled_transfer + beneficiar...",
+      "actions": [
+        "fx_conversion",
+        "retry_transfer",
+        "defer_payout"
+      ],
+      "findings": [
+        {
+          "check": "duplicate_webhook",
+          "severity": "note",
+          "source": "code",
+          "detail": "Event(s) evt_failed_01 x2 delivered more than once; counted once."
+        },
+        {
+          "check": "out_of_order_webhook",
+          "severity": "note",
+          "source": "code",
+          "detail": "Last arrival says PROCESSING, created_at order says CANCELLED. Using created_at and GET /api/v1/transfers/{id}."
+        },
+        {
+          "check": "retry_transfer_uses_unremediated_beneficiary",
+          "severity": "block",
+          "source": "model",
+          "detail": "The original transfer failed with INVALID_ACCOUNT_NAME_OR_NUMBER. The retry uses the same beneficiaryId and provides no corrected account name/number or beneficiary verification, so it is likely to fail again."
+        },
+        {
+          "check": "retry_from_cancelled_transfer",
+          "severity": "block",
+          "source": "model",
+          "detail": "The original transfer status is CANCELLED. A retry from a cancelled transfer should not proceed without an explicit policy path or a new corrected transfer."
+        },
+        {
+          "check": "reserve_not_accounted_in_balances",
+          "severity": "block",
+          "source": "model",
+          "detail": "A separate USD reserve of 10,000 exists while balances show reserved_amount 0. The reserve must be held or deducted before allocating USD for the retry."
+        },
+        {
+          "check": "usd_liquidity_shortfall_with_queued_payout",
+          "severity": "block",
+          "source": "model",
+          "detail": "After the 28,000 USD FX purchase, available USD is 50,000. The 10,000 USD reserve plus the 40,000 USD retry consumes the full amount; if queued_marketing_7000 remains committed, total required USD is 57,000, creating a 7,000 USD shortfall."
+        },
+        {
+          "check": "approval_threshold_not_satisfied_for_retry",
+          "severity": "block",
+          "source": "model",
+          "detail": "The retry transfer is 40,000 USD, above the 10,000 USD approval threshold, and no approval reference is present in the situation."
+        },
+        {
+          "check": "deferral_until_is_not_a_concrete_time",
+          "severity": "note",
+          "source": "model",
+          "detail": "The deferral until condition is 'after supplier settles', not a date/time. It cannot be scheduled or enforced reliably and may leave the 7,000 USD payout overdue."
+        },
+        {
+          "check": "fx_quote_expiry_execution_risk",
+          "severity": "note",
+          "source": "model",
+          "detail": "The quote expires at 2026-11-02T14:15:00Z and now is 2026-11-02T14:00:00Z. The FX conversion must execute before expiry; otherwise the retry lacks the 28,000 USD purchase."
+        },
+        {
+          "check": "retry_depends_on_fx_settlement",
+          "severity": "note",
+          "source": "model",
+          "detail": "The retry depends on funds from the FX conversion. Ensure the FX is filled/settled or the funds are atomically reserved before the retry is submitted."
+        }
+      ],
+      "decision": "blocked"
+    }
+  ],
+  "calls_to_mock": {
+    "createTransfer": 0,
+    "createConversion": 0,
+    "createQuote": 2
+  },
+  "receipt": null
+}
