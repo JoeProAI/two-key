@@ -12,6 +12,22 @@ Status: the $40k Northwind incident runs end to end in **MOCK** mode with no mod
 | SANDBOX | Airwallex sandbox host only, real sandbox ids, still not real money. Only `npm run live-smoke` and the optional step in `npm run proof` call it. |
 | Live money | Not built. The live client refuses any host other than `api.sandbox.airwallex.com`. |
 
+## Airwallex sandbox evidence
+
+Recorded sandbox run, 2026-10-27. The public desk runs the same corridor against a mock provider.
+
+| Endpoint | Recorded result |
+|---|---|
+| `POST /api/v1/authentication/login` | 201 |
+| `GET /api/v1/balances/current` | 200 |
+| `POST /api/v1/fx/quotes/create` | quote `878e1b2c-070a-3b39-9b69-0a60291f9ec6` |
+| `GET /api/v1/fx/conversions?request_id=` + `POST /api/v1/fx/conversions/create` | conversion `32a3bfa6-0c1e-408b-986e-84a45f472449` SETTLED |
+| `GET /api/v1/transfers?request_id=` + `POST /api/v1/transfers/create` | transfer `4e1dab1a-c59b-413b-92d5-813f6caafd59` |
+| `POST /api/v1/simulation/transfers/{id}/transition` | SENT, FAILED (`BENEFICIARY_NAME_MISMATCH`), read back CANCELLED |
+| Rerun 2026-10-28 | `already_done` for both, no second create |
+
+Those ids came from `scripts/live-smoke.ts`, not from this desk build. Details in `docs/ops-note.md`, the endpoint to code to test map in `docs/AIRWALLEX-MAP.md`. Rerun with your own sandbox keys: `AIRWALLEX_CLIENT_ID=... AIRWALLEX_API_KEY=... npm run proof`.
+
 ## Judges in 90 seconds
 
 No keys. No site login. Node 20.9 or newer (tested on Node 22).

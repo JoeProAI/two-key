@@ -5,6 +5,7 @@ import { ApproverField, DeskKeyField, GuardedForm } from "./ui/guarded-form";
 import { SubmitButton } from "./ui/submit-button";
 import { CopyId } from "./ui/copy-id";
 import { HeroPlate } from "./ui/hero-plate";
+import { AirwallexCalls } from "./ui/airwallex-calls";
 import { actionName, nextCue, rail, resultWord, stateLine } from "@/lib/desk/story";
 import type { DeskAction, DeskRound, DeskView } from "@/lib/desk/types";
 
@@ -27,6 +28,7 @@ export function Desk({ view, demo }: { view: DeskView; demo?: ReactNode }) {
         <p className="mast-links">
           {privateDesk ? <a href="/fixture">Mock fixture</a> : <a href="/">Private desk</a>}
           {view.publicFixture ? <span>Public fixture. Read only.</span> : null}
+          <a href="#airwallex">Airwallex calls</a>
         </p>
       </header>
       <section className="summary" id="incident" aria-labelledby="payee">
@@ -116,6 +118,7 @@ export function Desk({ view, demo }: { view: DeskView; demo?: ReactNode }) {
           </GuardedForm>
         ) : null}
       </section>
+      <AirwallexCalls view={view} />
       </div>
     </DeskFrame>
   );

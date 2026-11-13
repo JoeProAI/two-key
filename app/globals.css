@@ -268,7 +268,8 @@ a { color: inherit; }
     "rail"
     "cash"
     "consent"
-    "proof";
+    "proof"
+    "awx";
 }
 
 .instrument.has-demo {
@@ -280,7 +281,8 @@ a { color: inherit; }
     "demo"
     "cash"
     "consent"
-    "proof";
+    "proof"
+    "awx";
 }
 
 .instrument > * { min-width: 0; }
@@ -293,6 +295,7 @@ a { color: inherit; }
 .cash-field { grid-area: cash; }
 .consent { grid-area: consent; }
 .proof { grid-area: proof; }
+.awx { grid-area: awx; }
 
 /* Working sections. */
 .cash-field, .consent > div, .proof { padding: 28px 16px 32px; }
@@ -308,6 +311,16 @@ a { color: inherit; }
 #authorization { background: var(--cyan); color: var(--plum); }
 
 .proof { background: var(--plum); color: var(--paper); border-top: 8px solid var(--vermilion); }
+
+.awx { padding: 28px 16px 32px; background: var(--cyan); color: var(--plum); }
+
+.awx-rows { list-style: none; padding: 0; margin: 16px 0; display: grid; gap: 2px; }
+
+.awx-rows li { display: grid; gap: 2px; padding: 10px 12px; background: var(--paper); border-left: 6px solid var(--vermilion); overflow-wrap: anywhere; }
+
+.awx-rows code { font-family: var(--figures); font-size: 0.875rem; }
+
+.awx-rows em { font-style: normal; font-family: var(--label); text-transform: uppercase; font-size: 0.875rem; }
 
 .history h2 { font-size: 1.25rem; }
 
@@ -442,7 +455,8 @@ button[aria-disabled="true"] { cursor: not-allowed; }
       "rail rail"
       "cash cash"
       "consent consent"
-      "proof proof";
+      "proof proof"
+      "awx awx";
   }
   .instrument.has-demo {
     grid-template-areas:
@@ -452,7 +466,8 @@ button[aria-disabled="true"] { cursor: not-allowed; }
       "demo demo"
       "cash cash"
       "consent consent"
-      "proof proof";
+      "proof proof"
+      "awx awx";
   }
   .mast { grid-template-columns: auto auto 1fr; column-gap: 24px; padding: 10px 32px; }
   .mock { grid-column: auto; grid-row: auto; justify-self: start; font-size: 1.25rem; padding: 6px 14px; }
@@ -479,6 +494,8 @@ button[aria-disabled="true"] { cursor: not-allowed; }
   .cash-field > *, .proof > * { max-width: 72rem; }
   .cash { grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); }
   .consent { grid-template-columns: 1fr 1fr; }
+  .awx { padding: 48px 32px; }
+  .awx-rows li { grid-template-columns: 14rem minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1.2fr); align-items: baseline; column-gap: 16px; }
   .cash-field .terms, .proof .terms { grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); column-gap: 32px; }
 }
 
