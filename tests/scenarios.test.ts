@@ -54,3 +54,13 @@ describe("demo CLI scenarios", () => {
     for (const run of Object.values(SCENARIOS)) expect((await run()).receipt).toBeTruthy();
   });
 });
+
+describe("builder-guide arc", () => {
+  it("labels Goal, Plan, New information, Revised decision, Resulting state on the receipt", async () => {
+    const res = await SCENARIOS.main();
+    const lines = res.receipt!.lines;
+    expect(lines.slice(0, 5).map((l) => l.split(":")[0])).toEqual(["Goal", "Plan", "New information", "Revised decision", "Resulting state"]);
+    expect(lines[2]).toMatch(/blocked round 1 on double_payment/);
+    expect(lines[3]).toMatch(/round 2\..*Decision: approved by joe/);
+  });
+});

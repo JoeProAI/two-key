@@ -96,7 +96,7 @@ export async function runDemo(awx: AirwallexClient, opts: { approver?: string; n
     if (executions.some((e) => e.result === "error")) {
       return { ledger, rounds, executions, receipt: null, awaiting: null, depositLine };
     }
-    const receipt = buildReceipt(ledger, intent.id, now);
+    const receipt = buildReceipt(ledger, intent.id, now, depositLine);
     if (depositLine) {
       const at = receipt.lines.findIndex((line) => line.startsWith("Round 2"));
       receipt.lines.splice(at < 0 ? receipt.lines.length : at, 0, `  ${depositLine}`);
@@ -106,8 +106,33 @@ export async function runDemo(awx: AirwallexClient, opts: { approver?: string; n
   return { ledger, rounds, executions: [], receipt: null, awaiting: null, depositLine };
 }
 
-export function buildReceipt(ledger: MemoryLedger, intentId: string, now: number) {
-  const lines: string[] = [];
+/** Builder-guide arc: Goal, Plan, New information, Revised decision, Resulting state. Read from the ledger only. */
+export function arcLines(ledger: MemoryLedger, intentId: string, evidence?: string | null): string[] {
+  const props = ledger.proposals.filter((x) => x.intentId === intentId).sort((a, b) => a.round - b.round);
+  if (!props.length) return [];
+  const goal = ledger.intents.find((i) => i.id === intentId)?.title ?? intentId;
+  const first = props[0];
+  const last = props.at(-1)!;
+  const blocks = ledger.objections.filter((o) => o.proposalId === first.id && o.severity === "block").map((o) => o.check);
+  const info = [blocks.length ? `the Wringer blocked round ${first.round} on ${blocks.join(", ")}.` : `the Wringer raised no block on round ${first.round}.`];
+  if (evidence) info.push(evidence.replace(/^Evidence: /, ""));
+  const lastDecision = ledger.decisions.find((d) => d.proposalId === last.id);
+  const decided = !lastDecision ? "no decision" : lastDecision.humanApprovedBy ? `approved by ${lastDecision.humanApprovedBy}` : lastDecision.status;
+  const runs = ledger.executions.filter((e) => e.decisionId === lastDecision?.id);
+  const state = runs.length ? runs.map((e) => `${e.actionKind} ${e.result}`).join(", ") : "nothing executed";
+  const lines = [
+    `Goal: ${goal}.`,
+    `Plan: round ${first.round}. ${first.summary}`,
+    `New information: ${info.join(" ")}`,
+  ];
+  if (last !== first) lines.push(`Revised decision: round ${last.round}. ${last.summary} Decision: ${decided}.`);
+  else lines.push(`Revised decision: none. Round ${first.round} decision: ${decided}.`);
+  lines.push(`Resulting state: ${state}.`);
+  return lines;
+}
+
+export function buildReceipt(ledger: MemoryLedger, intentId: string, now: number, evidence?: string | null) {
+  const lines: string[] = [...arcLines(ledger, intentId, evidence)];
   for (const p of ledger.proposals.filter((x) => x.intentId === intentId)) {
     lines.push(`Round ${p.round}. Planner: ${p.summary}`);
     for (const o of ledger.objections.filter((x) => x.proposalId === p.id)) lines.push(`  Wringer ${o.severity === "block" ? "BLOCK" : "note"} [${o.check}]: ${o.detail}`);
