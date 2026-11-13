@@ -12,6 +12,10 @@ Status: the $40k Northwind incident runs end to end in **MOCK** mode with no mod
 | SANDBOX | Airwallex sandbox host only, real sandbox ids, still not real money. Only `npm run live-smoke` and the optional step in `npm run proof` call it. |
 | Live money | Not built. The live client refuses any host other than `api.sandbox.airwallex.com`. |
 
+## Recorded live model run
+
+Recorded live model run, mock provider: [`docs/agent-runs/2026-11-13-live-ernie-free-model-moves-converged.json`](docs/agent-runs/2026-11-13-live-ernie-free-model-moves-converged.json), Fri Nov 13 2026 02:53 UTC, head `59b2335`, planner and Wringer `baidu/ernie-5.5-flash-preview:free` on OpenRouter. The model proposed the moves itself. Round 1: the model Wringer blocked on the reserve floor. Round 2: the model dropped the deferral and the **code** check blocked it (`reserve_breach`). Round 3: the model put the deferral back, approved, one mock transfer. The companion run that stayed blocked all 3 rounds (0 transfers) and the earlier runs are in [`docs/agent-runs/`](docs/agent-runs/README.md).
+
 ## Airwallex sandbox evidence
 
 Recorded sandbox run, 2026-10-27. The public desk runs the same corridor against a mock provider.

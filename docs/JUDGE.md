@@ -2,7 +2,7 @@
 
 Measured on 2026-11-07 from this working tree, mock mode, no model key, no Convex, no Airwallex call.
 
-`npm run check`: lint, typecheck, 138 tests, leak-scan clean (26 client files, 12 needles), Next.js 15.5.27 build. No skipped tests. Live agents: the planner model proposes the moves from a closed set, code recomputes ids and runs the hard checks on them, and schema-breaking replies fall back to the fixture moves (`npx vitest run tests/agents-planner.test.ts`, transcripts in `docs/agent-runs/`). The faces are files in `app/fonts`, so the production build does not download them.
+`npm run check`: lint, typecheck, 138 tests, leak-scan clean (26 client files, 12 needles), Next.js 15.5.27 build. No skipped tests. Live agents: the planner model proposes the moves from a closed set, code recomputes ids and runs the hard checks on them, and schema-breaking replies fall back to the fixture moves (`npx vitest run tests/agents-planner.test.ts`, transcripts in `docs/agent-runs/`). Recorded live model run, mock provider: `docs/agent-runs/2026-11-13-live-ernie-free-model-moves-converged.json`. The model proposed the moves, code blocked its round 2 plan (`reserve_breach`), it revised, and round 3 paid once. The faces are files in `app/fonts`, so the production build does not download them.
 
 ## Airwallex sandbox evidence
 

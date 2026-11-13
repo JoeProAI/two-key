@@ -1,6 +1,7 @@
 import type { DeskView } from "@/lib/desk/types";
 
 const RECORDED = "2026-10-27";
+const LIVE_RUN = "docs/agent-runs/2026-11-13-live-ernie-free-model-moves-converged.json";
 
 /** Static map of the corridor. This deploy answers every row with the mock provider. */
 export function AirwallexCalls({ view }: { view: DeskView }) {
@@ -33,6 +34,7 @@ export function AirwallexCalls({ view }: { view: DeskView }) {
         ))}
       </ol>
       <p>Map from desk step to code and test: docs/AIRWALLEX-MAP.md. Rerun with sandbox keys: npm run proof.</p>
+      <p>Recorded live model run, mock provider: {LIVE_RUN}. The model proposed the moves, code blocked its round 2 plan (reserve_breach), it revised, round 3 paid once.</p>
     </section>
   );
 }
