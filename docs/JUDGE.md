@@ -2,7 +2,7 @@
 
 Measured on 2026-11-07 from this working tree, mock mode, no model key, no Convex, no Airwallex call.
 
-`npm run check`: lint, typecheck, 110 tests, leak-scan clean (26 client files, 12 needles), Next.js 15.5.27 build. No skipped tests. The faces are files in `app/fonts`, so the production build does not download them.
+`npm run check`: lint, typecheck, 129 tests, leak-scan clean (26 client files, 12 needles), Next.js 15.5.27 build. No skipped tests. The faces are files in `app/fonts`, so the production build does not download them.
 
 ## Airwallex sandbox evidence
 
@@ -28,7 +28,7 @@ npm ci && npm run proof
 
 `npm run proof` runs the install check, `npm run check`, `npm run demo`, `npm run demo -- rerun` and `npm run matrix`, then the Airwallex SANDBOX corridor only if `AIRWALLEX_CLIENT_ID` and `AIRWALLEX_API_KEY` are set. Without them it prints `SANDBOX skipped` and names them. The summary is `artifacts/proof/summary.md`. `npm run evidence` is the longer printout below.
 
-`npm run evidence` prints the matrix, then three labeled scenarios: `main`, `replay`, and `deposit`. They do not share a mock. `main` provider ids are not the replay's. It writes `artifacts/receipts/northwind-latest.json`, `artifacts/receipts/replay.json`, `artifacts/receipts/deposit.json`, and CSVs beside them. `docs/shots/northwind-receipt.json` is the main pack from that command. `docs/shots/replay-identity.json` is the fresh-process comparison from that command. Provider ids change when the process changes. These request ids stay, because each one includes the money fields:
+`npm run evidence` prints the matrix, then three labeled scenarios: `main`, `replay`, and `deposit`. They do not share a mock. `main` provider ids are not the replay's. It writes `artifacts/receipts/northwind-latest.json`, `artifacts/receipts/replay.json`, `artifacts/receipts/deposit.json`, and CSVs beside them. `docs/shots/northwind-receipt.json` and `docs/shots/replay-identity.json` are a committed copy of those packs. `npm run demo`, `npm run evidence` and `npm run proof` do not touch them, so the tree stays clean after a judge runs them. `npm run shots:json` refreshes them on purpose. Provider ids change when the process changes. These request ids stay, because each one includes the money fields:
 
 | Move | Payload in the key | request_id |
 |---|---|---|
@@ -47,12 +47,12 @@ The receipt opens with the builder-guide arc:
 ```text
 Goal: Pay Northwind Steel INV-2291 (USD 40,000) once.
 Plan: round 1. Retry USD 40000 to the supplier (2 failure notices received).
-New information: the Wringer blocked round 1 on double_payment, unstable_request_id, reserve_breach.
-Revised decision: round 2. Retry once with a stable request_id, buy 28000 USD with EUR at the quoted rate, defer 1 low-priority payout(s). Decision: approved by joe.
-Resulting state: defer_payout ok, fx_conversion ok, retry_transfer ok.
+New information: the Wringer blocked round 1 on double_payment, unstable_request_id, beneficiary_unchanged_after_mismatch, reserve_breach. Read-back: GET /api/v1/transfers/43217eec-6053-4fe6-b760-000000000040 is CANCELLED (INVALID_ACCOUNT_NAME_OR_NUMBER). GET /api/v1/balances/current shows USD pending 0 and reserved 0, so the original holds no money. Supplier confirmed the legal account name "Northwind Steel Fabrication LLC" for the account ending 4417 (supplier letter, confirmed by call-back to the number already on file). The stored payee says "Northwind Steel".
+Revised decision: round 2. Correct the payee name to Northwind Steel Fabrication LLC as the supplier confirmed, retry once with a stable request_id, buy 28000 USD with EUR at the quoted rate, defer 1 low-priority payout(s). Decision: approved by joe.
+Resulting state: defer_payout ok, correct_beneficiary ok, fx_conversion ok, retry_transfer ok.
 ```
 
-Round 1 blocks: `double_payment`, `unstable_request_id`, `reserve_breach`. Notes: `duplicate_webhook` (`evt_failed_01` x2, counted once) and `out_of_order_webhook` (arrival PROCESSING, created_at CANCELLED).
+Round 1 blocks: `double_payment`, `unstable_request_id`, `beneficiary_unchanged_after_mismatch` (the bank rejected the payee name and the retry did not fix it), `reserve_breach`. Round 2 updates the payee with `POST /api/v1/beneficiaries/{id}/update` before the FX and the transfer. The supplier and its corrected name are fictional. Notes: `duplicate_webhook` (`evt_failed_01` x2, counted once) and `out_of_order_webhook` (arrival PROCESSING, created_at CANCELLED).
 
 Round 2: one stable retry, buy 28000 USD with EUR, defer the 7000 retainer. Decision `approved, approved by joe`.
 
@@ -76,7 +76,7 @@ A second `npm run demo` on a client that already has the live retry does not rep
 
 ## Matrix
 
-`npm run matrix` on the same day: 20 pass, 0 fail. Columns are attempts and settled objects. Settled counts an object the mock stored. A thrown call is an attempt with settled 0.
+`npm run matrix` on the same day: 21 pass, 0 fail. Columns are attempts and settled objects. Settled counts an object the mock stored. A thrown call is an attempt with settled 0.
 
 | Case | Measured |
 |---|---|
