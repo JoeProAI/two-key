@@ -6,6 +6,8 @@ Each money move needs two keys. The **planner** drafts the fix: retry the transf
 
 Status: the $40k Northwind incident runs end to end in **MOCK** mode with no model key, no Convex deployment and no Airwallex keys. The desk opens on an image-led spread: the live amount, payee, state and next step beside an illustrative photo, then the bound rail (Incident, Cash plan, Independent check, Human authorization, Receipt). A **SANDBOX** smoke against `api.sandbox.airwallex.com` was run on 2026-10-27 (see `docs/ops-note.md`); `npm run proof` reruns it only when sandbox keys are present. Licensed MIT, see [LICENSE](LICENSE).
 
+Docs: [two-key-nu.vercel.app/docs](https://two-key-nu.vercel.app/docs) (source in `app/docs/`), built from this README and `docs/`: overview, quickstart and proof commands, architecture, the Airwallex map, claims with known limits, the red team, and the recorded evidence. The desk header links to it.
+
 | Label | Means |
 |---|---|
 | MOCK | Hand-written fixtures in `lib/airwallex/mock.ts`. No network. No real money moves. The public desk and every `npm run demo` line are MOCK. |
@@ -102,6 +104,7 @@ Never give a secret a `NEXT_PUBLIC_` prefix. `tests/key-leak.test.ts` and `scrip
 - `convex/schema.ts`: tables for intents, proposals, objections, decisions, executions, webhookEvents and receipts. App ids are strings (`key`, `intentKey`). `convex/ledger.ts` holds webhook ingest, incident upsert, execution claim, and the incident read. All public functions check `TWO_KEY_INGEST_SECRET`.
 - `app/api/webhooks/airwallex/route.ts`: the webhook receiver. Writes through `WebhookStore`; returns 503 if the store is down so Airwallex retries
 - `app/page.tsx` and `app/desk.tsx`: the desk. Failed transfer, planner rounds, Wringer objections, one approve, receipt. Mock Airwallex only. The pay button stays disabled until the latest round has no blocking objection.
+- `app/docs/`: the docs site at `/docs`, written from this README and `docs/`.
 - `app/ui/hero-plate.tsx` and `public/hero/`: the one illustrative photo, as AVIF and WebP with a JPEG fallback. Desktop uses the full frame; phones use a panoramic crop of the same master. `alt=""` because it carries no information the page needs.
 - `scripts/proof.mjs`: `npm run proof`. `scripts/make-source-zip.sh`: `npm run pack:source`.
 
@@ -121,7 +124,7 @@ Never give a secret a `NEXT_PUBLIC_` prefix. `tests/key-leak.test.ts` and `scrip
 
 The ops desk at `/` is the same story with the tap. When `DESK_APPROVE_SECRET` is unset and Convex is unset, anyone can run the local mock. When the key is set, plan, approve, replay, and the Convex incident need the cookie. A wrong key or a missing cookie stays on the fixture incident. The pay control stays off while the Wringer key is open.
 
-The desk opens on one spread. On a desktop the photo sits left and the live summary right: payee reference, exact amount, state, the next step, and the plan round and digest the tap is bound to. On a phone the summary comes first, with the amount near the top of the screen, and a short panoramic crop of the same photo follows it. The photo is illustrative and is the same in every state. Its caption says it is not transaction evidence. Below it the rail reads Incident, Cash plan, Independent check, Human authorization, Receipt, then each section in that order. Demo controls stay collapsed. The MOCK label does not collapse.
+The desk opens on one spread. On a desktop the live summary sits left and the photo right: payee reference, exact amount, state, the next step, and the plan round and digest the tap is bound to. The photo is printed in two inks (ultramarine and rhodamine) by CSS from the same master. On a phone the summary comes first, with the amount near the top of the screen, and a short panoramic crop of the same photo follows it. The photo is illustrative and is the same in every state. Its caption says it is not transaction evidence. Below it the rail reads Incident, Cash plan, Independent check, Human authorization, Receipt, then each section in that order. Demo controls stay collapsed. The MOCK label does not collapse.
 
 The checker is a fixture program. A clear check is not consent. Every bound term the ledger actually stores is on the page before the mock approval button, and missing destination, fees, slippage, quote time, and authenticated identity stay marked unknown. Typing a name stores a demo label. It does not authenticate. The paid beat says a simulated payment was recorded. Replay checks the recorded ids and does not create a payment. The policy floor and the retainer are not reserved: USD 22,000 + 28,000 − 40,000 = 10,000, which is the floor. A failed simulation does not get a paid receipt. A tap is refused if the cash evidence changed after the plan was filed. If the shared ledger keeps another worker's row, this desk does not claim that provider call was undone.
 

@@ -3,10 +3,11 @@ import localFont from "next/font/local";
 import "./globals.css";
 
 const label = localFont({
-  src: "./fonts/BarlowCondensed-SemiBold.ttf",
+  src: "./fonts/Archivo-Var.woff2",
   variable: "--face-label",
-  weight: "600",
+  weight: "100 900",
   display: "swap",
+  declarations: [{ prop: "font-stretch", value: "62% 125%" }],
 });
 const body = localFont({
   src: "./fonts/IBMPlexSans-Variable.ttf",

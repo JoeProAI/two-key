@@ -19,13 +19,15 @@ export function Desk({ view, demo }: { view: DeskView; demo?: ReactNode }) {
     : stateLine(view);
   const latest = view.rounds.at(-1);
   const privateDesk = !view.publicFixture;
+  const lead = openingLead(view, state, cue.text);
   return (
     <DeskFrame>
       <div className={demo ? "instrument has-demo" : "instrument"}>
       <header className="mast">
-        <p className="brand">Two-Key</p>
+        <p className="brand"><a href={privateDesk ? "/" : "/fixture"}>Two-Key</a></p>
         <p className="mock">MOCK. No real money moves.</p>
         <p className="mast-links">
+          <a href="/docs">Docs</a>
           {privateDesk ? <a href="/fixture">Mock fixture</a> : <a href="/">Private desk</a>}
           {view.publicFixture ? <span>Public fixture. Read only.</span> : null}
           <a href="#airwallex" className="awx-link">Airwallex calls</a>
@@ -44,15 +46,13 @@ export function Desk({ view, demo }: { view: DeskView; demo?: ReactNode }) {
         <p className="next" id="next-step">
           <a href={cue.href}>{cue.text}</a>
         </p>
-        <p className="lead">{state.detail}</p>
-        <p className="binding">
-          {latest ? `Bound to plan round ${latest.round}. Digest ${short(latest.boundDigest)}` : "No plan is filed. Nothing is bound."}
-        </p>
+        {lead ? <p className="lead">{lead}</p> : null}
+        {latest ? <p className="binding">{`Bound to plan round ${latest.round}. Digest ${short(latest.boundDigest)}`}</p> : null}
       </section>
       <HeroPlate />
       <nav className="rail" aria-label="Bound decision">
         {stops.map((stop) => (
-          <a key={stop.id} href={`#${stop.id}`}>
+          <a key={stop.id} href={`#${stop.id}`} data-stop={stop.id}>
             <span>{stop.label}</span>
             <strong>{stop.status}</strong>
           </a>
@@ -235,7 +235,7 @@ function Checker({ rounds, blockCount }: { rounds: DeskRound[]; blockCount: numb
               <ul>
                 {round.findings.map((finding) => (
                   <li key={`${round.round}-${finding.check}`}>
-                    <strong>{finding.severity === "block" ? "Blocking" : "Note"}. {finding.check}.</strong> {finding.detail}
+                    <strong data-severity={finding.severity}>{finding.severity === "block" ? "Blocking" : "Note"}. {finding.check}.</strong> {finding.detail}
                     {finding.at ? ` Recorded at ${finding.at} on the demo clock.` : " Recorded time unknown."}
                   </li>
                 ))}
@@ -325,6 +325,22 @@ function Term({ label, value, unknown, copy }: { label: string; value: string; u
       <dd>{copy ? <CopyId id={value} /> : value}</dd>
     </div>
   );
+}
+
+/** One statement per fact in the opening: drop lead sentences the next-step button already says.
+ *  Before a plan exists, the lead states the incident instead of repeating "nothing sent". */
+function openingLead(view: DeskView, state: { word: string; detail: string }, cue: string): string {
+  if (!view.locked && !view.error && !view.rounds.length && view.phase !== "paid" && view.phase !== "failed") {
+    const failure = view.failure ? ` ${view.failure.replace(/\.?$/, ".")}` : "";
+    return `The original transfer was ${view.status.toLowerCase()}.${failure}`;
+  }
+  const key = (line: string) => line.toLowerCase().replace(/\b(is|was|has been)\b/g, "").replace(/\W+/g, "");
+  const said = new Set(sentences(cue).map(key));
+  return sentences(state.detail).filter((line) => !said.has(key(line))).join(" ");
+}
+
+function sentences(text: string): string[] {
+  return text.split(/(?<=\.)\s+/).map((line) => line.trim()).filter(Boolean);
 }
 
 function short(digest: string | null | undefined): string {
