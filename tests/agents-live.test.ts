@@ -29,7 +29,7 @@ const retries = (r: { proposal: { actions: { kind: string }[] } }) => r.proposal
 afterEach(() => vi.unstubAllGlobals());
 
 describe("live agent path with a stubbed OpenRouter", () => {
-  it("valid replies: model summary is used, model note is added, hard blocks stand, one transfer", async () => {
+  it("valid replies with no moves: the moves fall back to code, a model note is added, hard blocks stand, one transfer", async () => {
     const seen = stubOpenRouter((role) => role === "planner"
       ? JSON.stringify({ summary: "Model: retry the supplier once.", moves: [] })
       : JSON.stringify({ objections: [{ check: "model_hunch", severity: "note", detail: "Reference looks hand-typed." }] }));
@@ -40,7 +40,8 @@ describe("live agent path with a stubbed OpenRouter", () => {
     expect(res.rounds[0].decision.status).toBe("blocked");
     expect(res.rounds[0].findings.map((f) => f.check)).toContain("double_payment");
     expect(res.rounds[1].findings.map((f) => f.check)).toContain("model_hunch");
-    expect(res.receipt!.lines.join("\n")).toContain("Model: retry the supplier once.");
+    expect(res.rounds.every((r) => r.planSource === "fallback")).toBe(true);
+    expect(res.receipt!.lines.join("\n")).not.toContain("Model: retry the supplier once.");
     expect(awx.calls.createTransfer).toBe(1);
   });
 

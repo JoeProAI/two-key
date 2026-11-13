@@ -14,7 +14,7 @@ Every claim in README.md, and the command that checks it. All commands run offli
 | The receipt reads Goal, Plan, New information, Revised decision, Resulting state. | `npm run demo`; `tests/scenarios.test.ts` "labels Goal, Plan, New information, Revised decision, Resulting state on the receipt" |
 | The planner and Wringer run through OpenRouter when configured, and code stays authoritative. | `OPENROUTER_API_KEY=... OPENROUTER_MODEL_PLANNER=... OPENROUTER_MODEL_WRINGER=... npm run demo:agents` (OpenRouter); `npx vitest run tests/agents-live.test.ts` |
 | Without OpenRouter env, `demo:agents` names what is missing and exits non-zero. | `npm run demo:agents; echo $?` prints 2 |
-| The model cannot add a move, change an amount or clear a block. | `npx vitest run tests/wringer-hard-stop.test.ts tests/agents-live.test.ts` |
+| In live mode the model proposes the moves; code recomputes ids, blocks any amount, payee or quote that differs from the evidence, and the model cannot clear a block. Stub mode is deterministic. | `npx vitest run tests/agents-planner.test.ts tests/wringer-hard-stop.test.ts tests/agents-live.test.ts` |
 | A retry never goes to a payee the bank rejected; the payee is corrected to supplier-confirmed names first. | `npx vitest run tests/beneficiary-fix.test.ts`; matrix row "retry to unchanged payee" |
 | The receipt shows the original read back CANCELLED with no money held, before the retry. | `npm run demo`, line "New information" |
 | `npm run proof`, `demo` and `evidence` leave the git tree clean. | `npm run proof && git status --short` prints nothing |

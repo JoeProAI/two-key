@@ -1,6 +1,8 @@
 # Agent runs
 
-Transcripts from `npm run demo:agents -- --out docs/agent-runs`. Each file names the planner and Wringer model ids, every OpenRouter reply (redacted, truncated), which findings came from code and which from the model, and the mock transfer count. The Airwallex side is the MOCK fixture in every run. No money moves.
+Transcripts from `npm run demo:agents -- --out docs/agent-runs`. Each file names the planner and Wringer model ids, every OpenRouter reply (redacted, truncated), and the mock call counts. The Airwallex side is the MOCK fixture in every run. No money moves.
+
+What the model controls (schema `two-key.agent-run.v2`, from the commit after `e67a008`): the live planner proposes the moves from a closed set (`correct_beneficiary`, `fx_conversion`, `retry_transfer`, `defer_payout`) with amounts, currencies and ids. Code checks the schema strictly, ignores any id the model sends and recomputes every `request_id`, quote id and payout amount, then runs the hard Wringer checks on the model's own moves. An amount that differs from the evidence is blocked by code (`transfer_terms_changed`, `retry_payee_changed`, `fx_quote_mismatch`, `reserve_breach`). If a round is blocked, the planner gets the findings and revises, up to 3 rounds. A reply that breaks the schema is discarded and the fixture moves for that round stand. Each round in the transcript records `proposedBy` (`model` or `fallback`), the proposal, `codeFindings`, `modelFindings` and the decision. The model Wringer can add blocks, never clear a code block. Runs before that commit (v1) used the older rule: the model wrote only the summary.
 
 Run it yourself:
 

@@ -1,13 +1,13 @@
 import type { AirwallexClient, Balance, Transfer } from "./airwallex/types";
 import * as fx from "./airwallex/fixtures";
 import { MemoryLedger } from "./ledger/memory";
-import { WebhookInbox } from "./webhooks/inbox";
+import { WebhookInbox, parseAwxTime } from "./webhooks/inbox";
 import { failureCode, payeeMismatch, type Situation } from "./agents/situation";
-import type { Finding } from "./agents/wringer";
+import { FX_MIN_HEADROOM_MS, type Finding } from "./agents/wringer";
 import type { Decision, Proposal } from "./ledger/types";
-import { plan } from "./agents/planner";
+import { plan, type PlanSource } from "./agents/planner";
 import { review } from "./agents/wringer";
-import type { ChatJSON } from "./agents/openrouter";
+import { agentMode, type ChatJSON } from "./agents/openrouter";
 import { approve, decide, execute } from "./agents/executor";
 import { applyAvailable, round } from "./money";
 import { canonicalRetryId } from "./requestId";
@@ -75,7 +75,9 @@ export async function runDemo(awx: AirwallexClient, opts: { approver?: string; n
     approvalThresholdUsd: opts.thresholdUsd ?? 10000,
   };
 
-  const rounds: { proposal: Proposal; findings: Finding[]; decision: Decision }[] = [];
+  const rounds: { proposal: Proposal; findings: Finding[]; decision: Decision; planSource: PlanSource; fallbackReason?: string }[] = [];
+  const llm = agentMode(opts.agents?.env ?? process.env) === "llm";
+  let previous: Finding[] = [];
   let objections: string[] = [];
   let depositLine: string | null = null;
   const liveRetry = await awx.findTransferByRequestId(canonicalRetryId(intent.id, original));
@@ -86,20 +88,23 @@ export async function runDemo(awx: AirwallexClient, opts: { approver?: string; n
     };
   }
   for (let r = 1; r <= 3; r++) {
-    if (r > 1) {
+    // Live planner: price the shortfall before round 1 too, so the model can propose a complete plan. Stub mode is unchanged.
+    const quoteFresh = situation.quote && parseAwxTime(situation.quote.valid_to_at) - now >= FX_MIN_HEADROOM_MS;
+    if (r > 1 || (llm && !quoteFresh)) {
       // Fund the shortfall: transfer + reserve - available USD (low-priority payouts deferred).
       const usd = situation.balances.find((b) => b.currency === "USD")!.available_amount;
       const short = round(original.transfer_amount + situation.reserve.amount - usd, "USD");
       if (short > 0) situation.quote = await awx.createQuote({ buy_currency: "USD", sell_currency: "EUR", buy_amount: short, validity: "MIN_15" }); // POST /api/v1/fx/quotes/create
     }
-    const p = await plan(situation, r, objections, opts.agents ?? {});
+    const p = await plan(situation, r, objections, { ...(opts.agents ?? {}), findings: previous });
     const proposal = { id: ledger.id("prop"), intentId: intent.id, round: r, author: "planner" as const, summary: p.summary, actions: p.actions, createdAt: now };
     ledger.proposals.push(proposal);
     const findings = await review(situation, p.actions, opts.agents ?? {});
     for (const f of findings) ledger.objections.push({ id: ledger.id("obj"), proposalId: proposal.id, author: "wringer", createdAt: now, ...f });
     const decision = decide(ledger, proposal, findings, situation.approvalThresholdUsd, now);
     decision.evidenceDigest = snapEvidence(situation);
-    rounds.push({ proposal, findings, decision });
+    rounds.push({ proposal, findings, decision, planSource: p.source, ...(p.fallbackReason ? { fallbackReason: p.fallbackReason } : {}) });
+    previous = findings;
     if (decision.status === "blocked") {
       if (opts.stopOnBlock) return { ledger, rounds, executions: [], receipt: null, awaiting: null, depositLine };
       if (r === 1 && opts.depositUsd && opts.depositUsd > 0) {

@@ -9,7 +9,7 @@ import { redact } from "../lib/receipt/redact";
 // Northwind on the MOCK provider, with the planner and Wringer consulted through OpenRouter.
 // Hard Wringer checks stay in code and stay authoritative. Model text is advisory and schema-checked.
 // No Airwallex call is made. No money moves.
-const HARD_CHECKS = new Set(["duplicate_webhook", "double_payment", "unstable_request_id", "out_of_order_webhook", "cancelled_not_failed", "original_still_live", "failed_not_yet_cancelled", "stale_fx_quote", "reserve_breach", "beneficiary_unchanged_after_mismatch", "beneficiary_correction_unverified", "original_debit_not_returned"]);
+const HARD_CHECKS = new Set(["duplicate_webhook", "double_payment", "unstable_request_id", "out_of_order_webhook", "cancelled_not_failed", "original_still_live", "failed_not_yet_cancelled", "stale_fx_quote", "reserve_breach", "beneficiary_unchanged_after_mismatch", "beneficiary_correction_unverified", "original_debit_not_returned", "transfer_terms_changed", "retry_payee_changed", "fx_quote_mismatch"]);
 
 const missing = missingAgentEnv(process.env);
 if (missing.length) {
@@ -48,17 +48,20 @@ const awx = createMockClient();
 const res = await runDemo(awx, { approver: "joe", agents: { env, chat } });
 const started = new Date().toISOString();
 const transcript = {
-  schema: "two-key.agent-run.v1",
+  schema: "two-key.agent-run.v2",
   at: started,
   provider: "MOCK Airwallex fixture. No Airwallex call. No money moved.",
   models: { planner: env.OPENROUTER_MODEL_PLANNER, wringer: env.OPENROUTER_MODEL_WRINGER },
-  rule: "Hard Wringer checks are code. Model objections can add, never clear. The planner model may only replace the summary text.",
+  rule: "The planner model proposes the moves from a closed set (correct_beneficiary, fx_conversion, retry_transfer, defer_payout). Code checks the schema, recomputes every request_id, quote id and payout amount, and runs the hard Wringer checks on the model's own moves. A reply that breaks the schema is discarded and the fixture moves for that round stand (proposedBy: fallback). Model objections can add blocks, never clear a code block.",
   calls,
   rounds: res.rounds.map((r) => ({
     round: r.proposal.round,
+    proposedBy: r.planSource,
+    ...(r.fallbackReason ? { fallbackReason: r.fallbackReason } : {}),
     summary: r.proposal.summary,
-    actions: r.proposal.actions.map((a) => a.kind),
-    findings: r.findings.map((f) => ({ check: f.check, severity: f.severity, source: HARD_CHECKS.has(f.check) ? "code" : "model", detail: f.detail })),
+    proposal: r.proposal.actions,
+    codeFindings: r.findings.filter((f) => HARD_CHECKS.has(f.check)).map((f) => ({ check: f.check, severity: f.severity, detail: f.detail })),
+    modelFindings: r.findings.filter((f) => !HARD_CHECKS.has(f.check)).map((f) => ({ check: f.check, severity: f.severity, detail: f.detail })),
     decision: r.decision.status,
   })),
   calls_to_mock: awx.calls,
@@ -73,7 +76,10 @@ const usable = calls.filter((c) => c.parsed).length;
 console.log("Mode: MOCK provider, live OpenRouter agents");
 console.log(`Models: planner ${transcript.models.planner}, wringer ${transcript.models.wringer}`);
 console.log(`Model calls: ${calls.length}, parsed: ${usable}, fell back to code: ${calls.length - usable}`);
-for (const r of transcript.rounds) console.log(`Round ${r.round}: ${r.decision}. ${r.findings.filter((f) => f.severity === "block").map((f) => `${f.source} BLOCK ${f.check}`).join(", ") || "no block"}`);
+for (const r of transcript.rounds) {
+  const b = [...r.codeFindings.map((f) => ({ ...f, source: "code" })), ...r.modelFindings.map((f) => ({ ...f, source: "model" }))].filter((f) => f.severity === "block");
+  console.log(`Round ${r.round}: moves by ${r.proposedBy}${r.fallbackReason ? ` (${r.fallbackReason})` : ""}. ${r.decision}. ${b.map((f) => `${f.source} BLOCK ${f.check}`).join(", ") || "no block"}`);
+}
 console.log(`Mock transfer creates: ${awx.calls.createTransfer}`);
 console.log(`Transcript: ${file}`);
 if (awx.calls.createTransfer > 1) process.exit(3);

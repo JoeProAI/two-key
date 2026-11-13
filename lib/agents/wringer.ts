@@ -28,6 +28,25 @@ export function wring(s: Situation, actions: Action[]): Finding[] {
     }
   }
 
+  // 2b. A retry repeats the original's terms. Amount, currency, original and payee come from the evidence, not the planner.
+  for (const r of retries) {
+    if (r.originalTransferId !== s.original.id || r.amount !== s.original.transfer_amount || r.currency !== s.original.transfer_currency) {
+      f.push({ check: "transfer_terms_changed", severity: "block", detail: `Retry is ${r.currency} ${r.amount} against ${r.originalTransferId}. The original is ${s.original.transfer_currency} ${s.original.transfer_amount} (${s.original.id}).` });
+    }
+    if (r.beneficiaryId !== (s.original.beneficiary_id ?? "")) {
+      f.push({ check: "retry_payee_changed", severity: "block", detail: `Retry pays beneficiary ${r.beneficiaryId}. The invoice payee is ${s.original.beneficiary_id ?? "unknown"}.` });
+    }
+  }
+
+  // 2c. A conversion must be the live quote, unchanged.
+  for (const a of actions) {
+    if (a.kind !== "fx_conversion") continue;
+    const q = s.quote;
+    if (!q || a.quoteId !== q.quote_id || a.buyAmount !== q.buy_amount || a.buyCurrency !== q.buy_currency || a.sellCurrency !== q.sell_currency) {
+      f.push({ check: "fx_quote_mismatch", severity: "block", detail: q ? `Conversion buys ${a.buyAmount} ${a.buyCurrency} with ${a.sellCurrency}. Quote ${q.quote_id} is ${q.buy_amount} ${q.buy_currency} with ${q.sell_currency}.` : "Conversion has no live quote." });
+    }
+  }
+
   // 3. Out-of-order webhooks: trust created_at, and the live GET, over arrival order.
   if (s.webhook.statusByArrival && s.webhook.statusByArrival !== s.webhook.statusByCreatedAt) {
     f.push({ check: "out_of_order_webhook", severity: "note", detail: `Last arrival says ${s.webhook.statusByArrival}, created_at order says ${s.webhook.statusByCreatedAt}. Using created_at and GET /api/v1/transfers/{id}.` });
