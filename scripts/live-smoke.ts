@@ -28,7 +28,15 @@ import { toMajorString } from "../lib/money";
 //   GET  /api/v1/transfers/{id}
 //   POST /api/v1/simulation/transfers/{id}/transition
 
-const INTENT = "sandbox-smoke-v1";
+// TWO_KEY_SMOKE_INTENT gives a fresh set of request_ids (for example sandbox-smoke-2026-11-12).
+// Same intent on a second run must come back already_done. Letters, digits, dot, dash only.
+export function smokeIntent(raw: string | undefined): string {
+  const v = raw?.trim();
+  if (!v) return "sandbox-smoke-v1";
+  if (!/^[A-Za-z0-9.-]{1,48}$/.test(v)) throw new Error("live-smoke: TWO_KEY_SMOKE_INTENT must be 1-48 letters, digits, dot or dash.");
+  return v;
+}
+const INTENT = smokeIntent(process.env.TWO_KEY_SMOKE_INTENT);
 const BENEFICIARY_NICK = "two-key-smoke-supplier";
 const BUY_USD = 10;
 const MIN_BALANCE = 40;
